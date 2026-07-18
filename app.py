@@ -426,6 +426,29 @@ if resultado:
                 st.metric("🔥 TOTAL ESPERADO", f"{total_corners}")
             with col_c3: 
                 st.metric(f"🚩 Córners {visitante}", f"{xc_v}")
+            
+            # --- NUEVO: ALGORITMO OVER / UNDER ---
+            st.write("") # Un pequeño espacio visual
+            linea_apuesta = 9.5 # Puedes cambiar este número según la línea del casino
+            
+            if total_corners > linea_apuesta:
+                pick_corners = f"🔥 JUGAR AL OVER (Más de {linea_apuesta})"
+                color_pick = "#00ff9d" # Verde brillante
+            else:
+                pick_corners = f"🧊 JUGAR AL UNDER (Menos de {linea_apuesta})"
+                color_pick = "#00c3ff" # Azul hielo
+                
+            # Renderizado del banner de sugerencia
+            st.markdown(
+                f"""
+                <div style="text-align:center; padding:10px; margin-top:5px; 
+                    border:1px dashed {color_pick}; color:{color_pick}; 
+                    border-radius:8px; font-weight:800; letter-spacing:1px;">
+                    🎯 SUGERENCIA DEL MODELO: {pick_corners}
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
 
     with col_der:
         st.subheader("📊 Matriz de Probabilidad por Resultado Exacto (%)")
