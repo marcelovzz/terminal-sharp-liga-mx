@@ -1,6 +1,37 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+import os # Asegúrate de poner esto hasta arriba de tu archivo app.py
+
+        st.subheader("🏟️ Selección de Partido")
+        
+        # Columnas asimétricas para encajar el logo y la barra
+        col_logo_l, col_sel_l, col_logo_v, col_sel_v = st.columns([1, 4, 1, 4])
+        
+        # --- EQUIPO LOCAL ---
+        with col_sel_l:
+            equipo_local = st.selectbox("🏠 Equipo Local", df.index)
+        
+        with col_logo_l:
+            st.write("") 
+            # El código busca la imagen local automáticamente
+            ruta_logo_l = f"logos/{equipo_local}.png"
+            if os.path.exists(ruta_logo_l):
+                st.image(ruta_logo_l, width=50)
+            else:
+                st.image("https://cdn-icons-png.flaticon.com/512/53/53283.png", width=50) # Genérico si falta el logo
+
+        # --- EQUIPO VISITANTE ---
+        with col_sel_v:
+            equipo_visitante = st.selectbox("✈️ Equipo Visitante", df.index)
+            
+        with col_logo_v:
+            st.write("")
+            ruta_logo_v = f"logos/{equipo_visitante}.png"
+            if os.path.exists(ruta_logo_v):
+                st.image(ruta_logo_v, width=50)
+            else:
+                st.image("https://cdn-icons-png.flaticon.com/512/53/53283.png", width=50)
 ==============================================================
  TERMINAL SHARP: LIGA MX
  Dashboard web de predicción cuantitativa basado en Poisson.
@@ -25,6 +56,8 @@ ESCUDO_ANCHO_PX = 110       # Ancho uniforme de los escudos
 # ==============================================================
 # 0. DICCIONARIO DE ESCUDOS
 # ==============================================================
+
+
 WIKI_COMMONS_BASE = "https://commons.wikimedia.org/wiki/Special:FilePath/"
 
 ESCUDOS_EQUIPOS = {
@@ -290,7 +323,7 @@ def calcular_xcorners(row_local, row_visit):
 # ==============================================================
 # 4. ENCABEZADO Y CONTROLES
 # ==============================================================
-st.markdown('<div class="main-title">🎯 TERMINAL SHARP: LIGA MX</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">⚽LIGA MX</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtitle">Motor Cuantitativo de Predicción · Distribución de Poisson</div>', unsafe_allow_html=True)
 
 equipos = sorted(df_equipos.index.tolist())
