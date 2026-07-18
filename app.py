@@ -57,8 +57,24 @@ FALLBACK_BADGE = {
     "Puebla": ("PUE", "#1c3f94", "#ffffff"),
 }
 
+import unicodedata
+
+
+def _normalizar(texto):
+    """minúsculas + sin acentos + sin espacios extra, para que el match de
+    escudos no dependa de que el CSV tenga los acentos/mayúsculas exactos."""
+    texto = texto.strip().lower()
+    return "".join(c for c in unicodedata.normalize("NFD", texto) if unicodedata.category(c) != "Mn")
+
+
+# Índice normalizado -> nombre de archivo, construido una sola vez a partir
+# de ESCUDOS_EQUIPOS (la fuente de verdad sigue siendo ese diccionario).
+_ESCUDOS_NORMALIZADOS = {_normalizar(k): v for k, v in ESCUDOS_EQUIPOS.items()}
+_FALLBACK_NORMALIZADO = {_normalizar(k): v for k, v in FALLBACK_BADGE.items()}
+
+
 def escudo_url(equipo):
-    archivo = ESCUDOS_EQUIPOS.get(equipo)
+    archivo = _ESCUDOS_NORMALIZADOS.get(_normalizar(equipo))
     if not archivo:
         return None
     from urllib.parse import quote
@@ -69,8 +85,8 @@ def render_escudo(equipo, nombre_display):
     if url:
         st.image(url, width=ESCUDO_ANCHO_PX)
     else:
-        iniciales, color_fondo, color_texto = FALLBACK_BADGE.get(
-            equipo, (nombre_display[:3].upper(), "#333333", "#ffffff")
+        iniciales, color_fondo, color_texto = _FALLBACK_NORMALIZADO.get(
+            _normalizar(equipo), (nombre_display[:3].upper(), "#333333", "#ffffff")
         )
         st.markdown(
             f"""
@@ -188,7 +204,8 @@ st.markdown("""
 @st.cache_data
 def cargar_datos(path):
     df = pd.read_csv(path)
-    columnas_requeridas = {"Equipo", "xG_favor", "xGA_contra", "Forma", "Jerarquia"}
+    columnas_requeridas = {"Equipo", "xG_favor", "xGA_contra", "Forma", "Jerarquia",
+                            "Corners_Favor", "Corners_Contra"}
     faltantes = columnas_requeridas - set(df.columns)
     if faltantes:
         raise ValueError(f"Faltan columnas en el CSV: {faltantes}")
@@ -326,9 +343,6 @@ if calcular:
             # 👇 ¡ESTA ES LA LÍNEA QUE EVITA QUE SALGA EL CERO! 👇
             "xc_l": xc_l, "xc_v": xc_v, "total_corners": total_corners, 
         }
-
-# (Asegúrate de que estas columnas existan en tu CSV)
-        xc_l, xc_v, total_corners = calcular_xcorners(row_local, row_visit)
 
 # ==============================================================
 # 5. RENDERIZADO DE RESULTADOS
@@ -505,4 +519,3 @@ if resultado:
 
 else:
     st.info("👆 Selecciona ambos equipos y presiona **GENERAR PICK** para correr el modelo.")
-
