@@ -308,12 +308,23 @@ if calcular:
         matriz = generar_matriz_poisson(xg_l, xg_v)
         mercados = calcular_mercados(matriz)
         top3 = top_marcadores(matriz)
+        
+        # El cálculo de córners:
+        xc_l, xc_v, total_corners = calcular_xcorners(row_local, row_visit)
 
+        # GUARDANDO EN MEMORIA:
         st.session_state["resultado"] = {
-            "local": equipo_local, "visitante": equipo_visitante,
-            "row_local": row_local, "row_visit": row_visit,
-            "xg_l": xg_l, "xg_v": xg_v,
-            "matriz": matriz, "mercados": mercados, "top3": top3,
+            "local": equipo_local, 
+            "visitante": equipo_visitante,
+            "row_local": row_local, 
+            "row_visit": row_visit,
+            "xg_l": xg_l, 
+            "xg_v": xg_v,
+            "matriz": matriz, 
+            "mercados": mercados, 
+            "top3": top3,
+            # 👇 ¡ESTA ES LA LÍNEA QUE EVITA QUE SALGA EL CERO! 👇
+            "xc_l": xc_l, "xc_v": xc_v, "total_corners": total_corners, 
         }
 
 # (Asegúrate de que estas columnas existan en tu CSV)
