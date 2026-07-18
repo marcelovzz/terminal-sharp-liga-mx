@@ -261,6 +261,14 @@ def top_marcadores(matriz, top_n=3, max_goles=MAX_GOLES_DISPLAY):
     filtrados = {k: v for k, v in matriz.items() if k[0] <= max_goles and k[1] <= max_goles}
     return sorted(filtrados.items(), key=lambda x: x[1], reverse=True)[:top_n]
 
+def calcular_xcorners(row_local, row_visit):
+    """Calcula los tiros de esquina esperados cruzando el ataque y defensa de ambos."""
+    corners_local = (row_local["Corners_Favor"] + row_visit["Corners_Contra"]) / 2
+    corners_visit = (row_visit["Corners_Favor"] + row_local["Corners_Contra"]) / 2
+    
+    # Sumamos ambos para obtener el total del partido (Línea asiática típica)
+    total_corners = corners_local + corners_visit
+    return round(corners_local, 2), round(corners_visit, 2), round(total_corners, 2)
 
 # ==============================================================
 # 4. ENCABEZADO Y CONTROLES
@@ -307,6 +315,8 @@ if calcular:
             "matriz": matriz, "mercados": mercados, "top3": top3,
         }
 
+# (Asegúrate de que estas columnas existan en tu CSV)
+        xc_l, xc_v, total_corners = calcular_xcorners(row_local, row_visit)
 
 # ==============================================================
 # 5. RENDERIZADO DE RESULTADOS
@@ -444,3 +454,13 @@ if resultado:
 
 else:
     st.info("👆 Selecciona ambos equipos y presiona **GENERAR PICK** para correr el modelo.")
+
+st.subheader("🚩 Mercado de Tiros de Esquina (Córners)")
+with st.container(border=True):
+            col_c1, col_c2, col_c3 = st.columns(3)
+            with col_c1: 
+                st.metric(f"🚩 Córners {local}", f"{xc_l}")
+            with col_c2: 
+                st.metric("🔥 TOTAL ESPERADO", f"{total_corners}")
+            with col_c3: 
+                st.metric(f"🚩 Córners {visitante}", f"{xc_v}")
