@@ -293,7 +293,6 @@ with col_btn:
     calcular = st.button("🔥 GENERAR PICK", type="primary", use_container_width=True)
 
 if calcular:
-    
     if equipo_local == equipo_visitante:
         st.warning("⚠ Selecciona dos equipos distintos para poder calcular una predicción.")
         st.session_state["resultado"] = None
@@ -316,8 +315,6 @@ if calcular:
             "matriz": matriz, "mercados": mercados, "top3": top3,
         }
 
-# (Asegúrate de que estas columnas existan en tu CSV)
-        xc_l, xc_v, total_corners = calcular_xcorners(row_local, row_visit)
 
 # ==============================================================
 # 5. RENDERIZADO DE RESULTADOS
@@ -334,6 +331,11 @@ if resultado:
     matriz = resultado["matriz"]
     mercados = resultado["mercados"]
     top3 = resultado["top3"]
+
+    # 👇 ESTO ES LO QUE TE FALTABA PARA QUE NO TRUENE 👇
+    xc_l = resultado.get("xc_l", 0)
+    xc_v = resultado.get("xc_v", 0)
+    total_corners = resultado.get("total_corners", 0)
 
     opciones_1x2 = {"Gana " + local: mercados["local"], "Empate": mercados["empate"], "Gana " + visitante: mercados["visitante"]}
     pick_top = max(opciones_1x2, key=opciones_1x2.get)
@@ -401,16 +403,6 @@ if resultado:
             with c4: st.metric(f"🛡️ Valla Invicta — {local}", f"{mercados['clean_sheet_local']*100:.1f}%")
             with c5: st.metric(f"🛡️ Valla Invicta — {visitante}", f"{mercados['clean_sheet_visitante']*100:.1f}%")
 
-    st.subheader("🚩 Mercado de Tiros de Esquina (Córners)")
-    with st.container(border=True):
-            col_c1, col_c2, col_c3 = st.columns(3)
-            with col_c1: 
-                st.metric(f"🚩 Córners {local}", f"{xc_l}")
-            with col_c2: 
-                st.metric("🔥 TOTAL ESPERADO", f"{total_corners}")
-            with col_c3: 
-                st.metric(f"🚩 Córners {visitante}", f"{xc_v}")
-
     with col_der:
         st.subheader("📊 Matriz de Probabilidad por Resultado Exacto (%)")
         
@@ -462,8 +454,6 @@ if resultado:
         
         # Renderizado del mapa de calor interactivo
         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-        
 
 else:
     st.info("👆 Selecciona ambos equipos y presiona **GENERAR PICK** para correr el modelo.")
-
