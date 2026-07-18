@@ -111,11 +111,11 @@ st.markdown("""
         background: radial-gradient(circle at top, #10151c 0%, #05070a 100%);
     }
     h1, h2, h3 {
-        font-family: 'Courier New', monospace !important;
+        font-family: 'Arial', sans-serif; !important;
         letter-spacing: 1px;
     }
     .main-title {
-        font-family: 'Courier New', monospace;
+       font-family: 'Arial', sans-serif;
         font-size: 2.6rem;
         font-weight: 800;
         text-align: center;
@@ -127,7 +127,7 @@ st.markdown("""
     .subtitle {
         text-align: center;
         color: #7d8b99;
-        font-family: 'Courier New', monospace;
+        font-family: 'Arial', sans-serif;
         font-size: 0.95rem;
         margin-top: 0;
         margin-bottom: 2.5rem;
@@ -136,7 +136,7 @@ st.markdown("""
     }
     .vs-badge {
         text-align: center;
-        font-family: 'Courier New', monospace;
+        font-family: 'Arial', sans-serif;
         font-size: 2.2rem;
         font-weight: 900;
         color: #ffd700;
@@ -150,7 +150,7 @@ st.markdown("""
         box-shadow: 0 0 18px rgba(0, 255, 157, 0.04);
     }
     div[data-testid="stMetricValue"] {
-        font-family: 'Courier New', monospace;
+        font-family: 'Arial', sans-serif;
         color: #00ff9d;
     }
     div[data-testid="stMetricLabel"] {
@@ -164,14 +164,14 @@ st.markdown("""
         border: 1px solid rgba(255,215,0,0.4);
         border-radius: 10px;
         padding: 14px 20px;
-        font-family: 'Courier New', monospace;
+        font-family: 'Arial', sans-serif;
         color: #ffd700;
         font-size: 1.2rem;
         text-align: center;
         margin: 1.5rem 0;
     }
     div.stButton > button {
-        font-family: 'Courier New', monospace;
+       font-family: 'Arial', sans-serif;
         font-weight: 800;
         letter-spacing: 2px;
         text-transform: uppercase;
@@ -415,7 +415,7 @@ if resultado:
             y=[str(y) for y in goles_rango],
             text=text_data,
             texttemplate="%{text}",
-            textfont=dict(family="Courier New", size=12, color="white"),
+            textfont=dict(family="Arial", size=12, color="white"),
             hoverinfo="text",
             colorscale=[[0, '#0e1520'], [0.1, '#1d2a44'], [0.4, '#23607a'], [0.7, '#8b2516'], [1, '#c83219']],
             showscale=False
@@ -423,12 +423,12 @@ if resultado:
 
         fig.update_layout(
             xaxis=dict(
-                title=dict(text=f"{visitante.upper()} (GOLES) →", font=dict(family="Courier New", color="#ffd700")), 
+                title=dict(text=f"{visitante.upper()} (GOLES) →", font=dict(family="Arial", color="#ffd700")), 
                 side="top",
                 tickfont=dict(family="Courier New", color="#ffd700")
             ),
             yaxis=dict(
-                title=dict(text=f"← {local.upper()} (GOLES)", font=dict(family="Courier New", color="#00ff9d")), 
+                title=dict(text=f"← {local.upper()} (GOLES)", font=dict(family="Arial", color="#00ff9d")), 
                 autorange="reversed",
                 tickfont=dict(family="Courier New", color="#00ff9d")
             ),
