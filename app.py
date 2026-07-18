@@ -400,6 +400,16 @@ if resultado:
             with c4: st.metric(f"🛡️ Valla Invicta — {local}", f"{mercados['clean_sheet_local']*100:.1f}%")
             with c5: st.metric(f"🛡️ Valla Invicta — {visitante}", f"{mercados['clean_sheet_visitante']*100:.1f}%")
 
+            st.subheader("🚩 Mercado de Tiros de Esquina (Córners)")
+        with st.container(border=True):
+            col_c1, col_c2, col_c3 = st.columns(3)
+            with col_c1: 
+                st.metric(f"🚩 Córners {local}", f"{xc_l}")
+            with col_c2: 
+                st.metric("🔥 TOTAL ESPERADO", f"{total_corners}")
+            with col_c3: 
+                st.metric(f"🚩 Córners {visitante}", f"{xc_v}")
+
     with col_der:
         st.subheader("📊 Matriz de Probabilidad por Resultado Exacto (%)")
         
@@ -455,12 +465,3 @@ if resultado:
 else:
     st.info("👆 Selecciona ambos equipos y presiona **GENERAR PICK** para correr el modelo.")
 
-st.subheader("🚩 Mercado de Tiros de Esquina (Córners)")
-with st.container(border=True):
-            col_c1, col_c2, col_c3 = st.columns(3)
-            with col_c1: 
-                st.metric(f"🚩 Córners {local}", f"{xc_l}")
-            with col_c2: 
-                st.metric("🔥 TOTAL ESPERADO", f"{total_corners}")
-            with col_c3: 
-                st.metric(f"🚩 Córners {visitante}", f"{xc_v}")
