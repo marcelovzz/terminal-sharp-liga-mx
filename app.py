@@ -1,37 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-import os # Asegúrate de poner esto hasta arriba de tu archivo app.py
-
-        st.subheader("🏟️ Selección de Partido")
-        
-        # Columnas asimétricas para encajar el logo y la barra
-        col_logo_l, col_sel_l, col_logo_v, col_sel_v = st.columns([1, 4, 1, 4])
-        
-        # --- EQUIPO LOCAL ---
-        with col_sel_l:
-            equipo_local = st.selectbox("🏠 Equipo Local", df.index)
-        
-        with col_logo_l:
-            st.write("") 
-            # El código busca la imagen local automáticamente
-            ruta_logo_l = f"logos/{equipo_local}.png"
-            if os.path.exists(ruta_logo_l):
-                st.image(ruta_logo_l, width=50)
-            else:
-                st.image("https://cdn-icons-png.flaticon.com/512/53/53283.png", width=50) # Genérico si falta el logo
-
-        # --- EQUIPO VISITANTE ---
-        with col_sel_v:
-            equipo_visitante = st.selectbox("✈️ Equipo Visitante", df.index)
-            
-        with col_logo_v:
-            st.write("")
-            ruta_logo_v = f"logos/{equipo_visitante}.png"
-            if os.path.exists(ruta_logo_v):
-                st.image(ruta_logo_v, width=50)
-            else:
-                st.image("https://cdn-icons-png.flaticon.com/512/53/53283.png", width=50)
 ==============================================================
  TERMINAL SHARP: LIGA MX
  Dashboard web de predicción cuantitativa basado en Poisson.
@@ -40,6 +9,7 @@ import os # Asegúrate de poner esto hasta arriba de tu archivo app.py
 ==============================================================
 """
 
+import os
 import math
 import pandas as pd
 import streamlit as st
@@ -328,14 +298,40 @@ st.markdown('<div class="subtitle">Motor Cuantitativo de Predicción · Distribu
 
 equipos = sorted(df_equipos.index.tolist())
 
-col_local, col_vs, col_visit = st.columns([4, 1, 4])
-with col_local:
+st.subheader("🏟️ Selección de Partido")
+
+# Columnas asimétricas para encajar el logo y la barra
+col_logo_l, col_sel_l, col_vs, col_logo_v, col_sel_v = st.columns([1, 3, 1, 1, 3])
+
+# --- EQUIPO LOCAL ---
+with col_sel_l:
     equipo_local = st.selectbox("🏠 Equipo Local", equipos, index=0, key="sb_local")
+
+with col_logo_l:
+    st.write("") 
+    # El código busca la imagen local automáticamente
+    ruta_logo_l = f"logos/{equipo_local}.png"
+    if os.path.exists(ruta_logo_l):
+        st.image(ruta_logo_l, width=50)
+    else:
+        st.image("https://cdn-icons-png.flaticon.com/512/53/53283.png", width=50)
+
+# --- VS EN MEDIO ---
 with col_vs:
     st.markdown('<div class="vs-badge">VS</div>', unsafe_allow_html=True)
-with col_visit:
+
+# --- EQUIPO VISITANTE ---
+with col_sel_v:
     idx_default = 1 if len(equipos) > 1 else 0
     equipo_visitante = st.selectbox("✈️ Equipo Visitante", equipos, index=idx_default, key="sb_visit")
+    
+with col_logo_v:
+    st.write("")
+    ruta_logo_v = f"logos/{equipo_visitante}.png"
+    if os.path.exists(ruta_logo_v):
+        st.image(ruta_logo_v, width=50)
+    else:
+        st.image("https://cdn-icons-png.flaticon.com/512/53/53283.png", width=50)
 
 st.write("") 
 _, col_btn, _ = st.columns([3, 4, 3])
@@ -373,7 +369,6 @@ if calcular:
             "matriz": matriz, 
             "mercados": mercados, 
             "top3": top3,
-            # 👇 ¡ESTA ES LA LÍNEA QUE EVITA QUE SALGA EL CERO! 👇
             "xc_l": xc_l, "xc_v": xc_v, "total_corners": total_corners, 
         }
 
@@ -393,7 +388,6 @@ if resultado:
     mercados = resultado["mercados"]
     top3 = resultado["top3"]
 
-    # 👇 ESTO ES LO QUE TE FALTABA PARA QUE NO TRUENE 👇
     xc_l = resultado.get("xc_l", 0)
     xc_v = resultado.get("xc_v", 0)
     total_corners = resultado.get("total_corners", 0)
@@ -464,8 +458,10 @@ if resultado:
             with c4: st.metric(f"🛡️ Valla Invicta — {local}", f"{mercados['clean_sheet_local']*100:.1f}%")
             with c5: st.metric(f"🛡️ Valla Invicta — {visitante}", f"{mercados['clean_sheet_visitante']*100:.1f}%")
 
-    st.subheader("🚩 Mercado de Tiros de Esquina (Córners)")
-    with st.container(border=True):
+        st.divider()
+
+        st.subheader("🚩 Mercado de Tiros de Esquina (Córners)")
+        with st.container(border=True):
             col_c1, col_c2, col_c3 = st.columns(3)
             with col_c1: 
                 st.metric(f"🚩 Córners {local}", f"{xc_l}")
@@ -475,17 +471,16 @@ if resultado:
                 st.metric(f"🚩 Córners {visitante}", f"{xc_v}")
             
             # --- NUEVO: ALGORITMO OVER / UNDER ---
-            st.write("") # Un pequeño espacio visual
-            linea_apuesta = 9.5 # Puedes cambiar este número según la línea del casino
+            st.write("") 
+            linea_apuesta = 9.5 
             
             if total_corners > linea_apuesta:
                 pick_corners = f"🔥 JUGAR AL OVER (Más de {linea_apuesta})"
-                color_pick = "#00ff9d" # Verde brillante
+                color_pick = "#00ff9d" 
             else:
                 pick_corners = f"🧊 JUGAR AL UNDER (Menos de {linea_apuesta})"
-                color_pick = "#00c3ff" # Azul hielo
+                color_pick = "#00c3ff" 
                 
-            # Renderizado del banner de sugerencia
             st.markdown(
                 f"""
                 <div style="text-align:center; padding:10px; margin-top:5px; 
@@ -500,7 +495,6 @@ if resultado:
     with col_der:
         st.subheader("📊 Matriz de Probabilidad por Resultado Exacto (%)")
         
-        # Construcción de la matriz 0-6 para Plotly
         z_data = []
         text_data = []
         goles_rango = list(range(MATRIZ_MAX_GOLES + 1))
@@ -515,7 +509,6 @@ if resultado:
             z_data.append(row_z)
             text_data.append(row_text)
 
-        # Creación del Heatmap Premium con Plotly
         fig = go.Figure(data=go.Heatmap(
             z=z_data,
             x=[str(x) for x in goles_rango],
@@ -546,9 +539,7 @@ if resultado:
             height=500
         )
         
-        # Renderizado del mapa de calor interactivo
         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
         
-
 else:
     st.info("👆 Selecciona ambos equipos y presiona **GENERAR PICK** para correr el modelo.")
