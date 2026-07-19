@@ -109,8 +109,8 @@ def render_escudo(equipo, nombre_display):
 # 1. ESTÉTICA "CASINO TERMINAL"
 # ==============================================================
 st.set_page_config(
-    page_title="Terminal Sharp: Liga MX",
-    page_icon="🎯",
+    page_title=" Liga MX-Predictor Avanzado",
+    page_icon="⚽",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
