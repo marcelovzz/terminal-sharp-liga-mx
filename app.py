@@ -534,6 +534,7 @@ if resultado:
             z_data.append(row_z)
             text_data.append(row_text)
 
+        # Creación del Heatmap Premium con Plotly
         fig = go.Figure(data=go.Heatmap(
             z=z_data,
             x=[str(x) for x in goles_rango],
@@ -543,7 +544,11 @@ if resultado:
             textfont=dict(family="Arial", size=12, color="white"),
             hoverinfo="text",
             colorscale=[[0, '#0e1520'], [0.1, '#1d2a44'], [0.4, '#23607a'], [0.7, '#8b2516'], [1, '#c83219']],
-            showscale=False
+            showscale=False,
+            # 👇 AQUÍ ESTÁ LA MAGIA PARA QUITAR LO SÓLIDO 👇
+            opacity=0.65,  # 0.65 hace que el color sea semi-transparente
+            xgap=3,        # Crea un espacio de 3 pixeles entre las columnas
+            ygap=3         # Crea un espacio de 3 pixeles entre las filas
         ))
 
         fig.update_layout(
