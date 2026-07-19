@@ -293,8 +293,10 @@ def calcular_xcorners(row_local, row_visit):
 # ==============================================================
 # 4. ENCABEZADO Y CONTROLES
 # ==============================================================
-st.markdown('<div class="main-title">⚽LIGA MX</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">Motor Cuantitativo de Predicción · Distribución de Poisson</div>', unsafe_allow_html=True)
+# Al sacar el emoji de la etiqueta <div>, recupera su color normal
+st.markdown('<div style="text-align: center; font-size: 2.6rem;">⚽</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">LIGA MX</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle"></div>', unsafe_allow_html=True)
 
 equipos = sorted(df_equipos.index.tolist())
 
