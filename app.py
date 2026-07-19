@@ -134,14 +134,17 @@ st.markdown("""
         letter-spacing: 1px;
     }
     .main-title {
-       font-family: 'Arial', sans-serif;
+        font-family: 'Arial', sans-serif;
         font-size: 2.6rem;
         font-weight: 800;
         text-align: center;
-        background: linear-gradient(90deg, #bf953f, #fcf6ba);
+        /* 👇 Estas 3 líneas son las que crean la magia del degradado dorado 👇 */
+        background: linear-gradient(90deg, #bf953f, #fcf6ba, #b38728, #fbf5b7);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
+        /* 👆 -------------------------------------------------------------- 👆 */
         margin-bottom: 0;
+    }
     }
     .subtitle {
         text-align: center;
