@@ -298,6 +298,15 @@ st.markdown('<div class="subtitle">Motor Cuantitativo de Predicción · Distribu
 
 equipos = sorted(df_equipos.index.tolist())
 
+# --- DICCIONARIO DE EMOJIS (Ponlo justo antes de los selectores) ---
+emojis_liga = {
+    "América": "🦅", "Guadalajara": "🐐", "Cruz Azul": "🚂", "Pumas": "🐾",
+    "Tigres": "🐯", "Monterrey": "⛰️", "Toluca": "👿", "Pachuca": "🐹",
+    "León": "🦁", "Santos": "😇", "Atlas": "🦊", "Necaxa": "⚡",
+    "Tijuana": "🐕", "Puebla": "🎽", "Juárez": "🐎", "Mazatlán": "⚓",
+    "Querétaro": "🐓", "San Luis": "⛪", "Atlante": "🦈"
+}
+
 st.subheader("🏟️ Selección de Partido")
 
 # Columnas asimétricas para encajar el logo y la barra
@@ -305,11 +314,16 @@ col_logo_l, col_sel_l, col_vs, col_logo_v, col_sel_v = st.columns([1, 3, 1, 1, 3
 
 # --- EQUIPO LOCAL ---
 with col_sel_l:
-    equipo_local = st.selectbox("🏠 Equipo Local", equipos, index=0, key="sb_local")
+    equipo_local = st.selectbox(
+        "🏠 Equipo Local", 
+        equipos, 
+        index=0, 
+        key="sb_local",
+        format_func=lambda x: f"{emojis_liga.get(x, '⚽')} {x}"
+    )
 
 with col_logo_l:
     st.write("") 
-    # El código busca la imagen local automáticamente
     ruta_logo_l = f"logos/{equipo_local}.png"
     if os.path.exists(ruta_logo_l):
         st.image(ruta_logo_l, width=50)
@@ -323,7 +337,13 @@ with col_vs:
 # --- EQUIPO VISITANTE ---
 with col_sel_v:
     idx_default = 1 if len(equipos) > 1 else 0
-    equipo_visitante = st.selectbox("✈️ Equipo Visitante", equipos, index=idx_default, key="sb_visit")
+    equipo_visitante = st.selectbox(
+        "✈️ Equipo Visitante", 
+        equipos, 
+        index=idx_default, 
+        key="sb_visit",
+        format_func=lambda x: f"{emojis_liga.get(x, '⚽')} {x}"
+    )
     
 with col_logo_v:
     st.write("")
