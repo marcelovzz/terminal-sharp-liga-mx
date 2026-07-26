@@ -262,6 +262,7 @@ def generar_matriz_poisson(xg_local, xg_visit, max_goles=MAX_GOLES_CALCULO):
 def calcular_mercados(matriz):
     p_local = p_empate = p_visit = 0.0
     p_btts = p_over25 = 0.0
+    p_under35 = 0.0  # <--- NUEVA VARIABLE
     p_clean_local = p_clean_visit = 0.0
 
     for (gl, gv), p in matriz.items():
@@ -271,12 +272,14 @@ def calcular_mercados(matriz):
 
         if gl >= 1 and gv >= 1: p_btts += p
         if (gl + gv) >= 3: p_over25 += p
+        if (gl + gv) <= 3: p_under35 += p  # <--- NUEVO CÁLCULO (0, 1, 2 o 3 goles totales)
         if gv == 0: p_clean_local += p
         if gl == 0: p_clean_visit += p
 
     return {
         "local": p_local, "empate": p_empate, "visitante": p_visit,
         "btts": p_btts, "over25": p_over25,
+        "under35": p_under35, # <--- LO AGREGAMOS AL RESULTADO
         "clean_sheet_local": p_clean_local, "clean_sheet_visitante": p_clean_visit,
     }
 
