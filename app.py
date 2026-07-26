@@ -476,15 +476,19 @@ if resultado:
         st.subheader("📈 Mercado de Goles (Over/Under)")
         with st.container(border=True):
             goles_totales = xg_l + xg_v
+            # Primera fila (3 columnas)
             c1, c2, c3 = st.columns(3)
             with c1: st.metric("⚽ Goles Totales", f"{goles_totales:.2f}")
             with c2: st.metric("🤝 Ambos Anotan", f"{mercados['btts']*100:.1f}%")
             with c3: st.metric("🔥 Más de 2.5", f"{mercados['over25']*100:.1f}%")
             
-            st.write("")
-            c4, c5 = st.columns(2)
-            with c4: st.metric(f"🛡️ Valla Invicta — {local}", f"{mercados['clean_sheet_local']*100:.1f}%")
-            with c5: st.metric(f"🛡️ Valla Invicta — {visitante}", f"{mercados['clean_sheet_visitante']*100:.1f}%")
+            st.write("") # Espacio
+            
+            # Segunda fila (3 columnas)
+            c4, c5, c6 = st.columns(3)
+            with c4: st.metric("🧊 Menos de 3.5", f"{mercados['under35']*100:.1f}%") # <--- TU NUEVO MERCADO
+            with c5: st.metric(f"🛡️ Invicta {local}", f"{mercados['clean_sheet_local']*100:.1f}%")
+            with c6: st.metric(f"🛡️ Invicta {visitante}", f"{mercados['clean_sheet_visitante']*100:.1f}%")
 
         st.divider()
 
