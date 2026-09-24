@@ -305,20 +305,17 @@ partidos_jornada = []
 
 # Usamos un expander para que el menú se pueda colapsar y no estorbe después de calcular
 with st.expander("⚙️ CONFIGURAR LOS 9 CRUCES", expanded=True):
-for i in range(1, 10):
-# Dividimos la pantalla en 3 columnas (Local, VS, Visitante)
-c1, c2, c3 = st.columns([4, 1, 4])
+            for i in range(1, 10):
+                c1, c2, c3 = st.columns([4, 1, 4])
                 
-with c1:
-local = st.selectbox(f"Local Partido {i}", df.index, key=f"loc_{i}", label_visibility="collapsed")
-with c2:
-st.markdown(f"<div style='text-align: center; font-weight: bold; margin-top: 5px;'>VS</div>", unsafe_allow_html=True)
-with c3:
-# Le ponemos un 'index' diferente para que no seleccione el mismo equipo por defecto
-visitante = st.selectbox(f"Visitante Partido {i}", df.index, index=min(i, len(df.index)-1), key=f"vis_{i}", label_visibility="collapsed")
+                with c1:
+                    local = st.selectbox(f"Local {i}", df.index, key=f"loc_{i}", label_visibility="collapsed")
+                with c2:
+                    st.markdown("<div style='text-align: center; font-weight: bold;'>VS</div>", unsafe_allow_html=True)
+                with c3:
+                    visitante = st.selectbox(f"Visitante {i}", df.index, index=min(i, len(df.index)-1), key=f"vis_{i}", label_visibility="collapsed")
                 
-# Guardamos la selección en nuestra lista
-partidos_jornada.append({"local": local, "visitante": visitante})
+                partidos_jornada.append({"local": local, "visitante": visitante})
                 
 # Una línea delgada para separar cada partido
 if i < 9:
