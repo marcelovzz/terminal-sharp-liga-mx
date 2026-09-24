@@ -1,0 +1,35 @@
+name: Robot Actualizador Liga MX
+
+on:
+  schedule:
+    # Esto usa formato CRON. "0 9 * * 1" significa: Todos los lunes a las 9:00 AM UTC (3:00 AM hora local de Monterrey)
+    - cron: '0 9 * * 1' 
+  workflow_dispatch: # Este comando te pondrá un botón en GitHub para que corras el robot manualmente cuando quieras
+
+jobs:
+  actualizar_datos:
+    runs-on: ubuntu-latest # Le pedimos a GitHub que nos preste un servidor con Linux
+
+    steps:
+      - name: 📥 Clonar el repositorio
+        uses: actions/checkout@v3
+
+      - name: 🐍 Instalar Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: 📦 Instalar librerías
+        run: pip install pandas requests lxml beautifulsoup4
+
+      - name: 🤖 Correr el Robot Scraper
+        run: python robot_scraper.py
+
+      - name: 💾 Guardar los cambios en el CSV (Commit)
+        run: |
+          git config --global user.name 'RobotLigaMX'
+          git config --global user.email 'robot@terminalsharp.com'
+          git add ligamx_stats_completo.csv
+          # Intenta hacer el commit. Si no cambiaron los números, simplemente avisa y no falla.
+          git commit -m "🤖 Datos de Liga MX actualizados automáticamente" || echo "No hay cambios nuevos para guardar"
+          git push
