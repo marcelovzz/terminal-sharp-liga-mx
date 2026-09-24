@@ -305,21 +305,23 @@ partidos_jornada = []
 
 # Usamos un expander para que el menú se pueda colapsar y no estorbe después de calcular
 with st.expander("⚙️ CONFIGURAR LOS 9 CRUCES", expanded=True):
-            for i in range(1, 10):
-                c1, c2, c3 = st.columns([4, 1, 4])
-                
-                with c1:
-                    local = st.selectbox(f"Local {i}", df.index, key=f"loc_{i}", label_visibility="collapsed")
-                with c2:
-                    st.markdown("<div style='text-align: center; font-weight: bold;'>VS</div>", unsafe_allow_html=True)
-                with c3:
-                    visitante = st.selectbox(f"Visitante {i}", df.index, index=min(i, len(df.index)-1), key=f"vis_{i}", label_visibility="collapsed")
-                
-                partidos_jornada.append({"local": local, "visitante": visitante})
-                
-# Una línea delgada para separar cada partido
-if i < 9:
-                    st.markdown("<hr style='margin: 0.5em 0px; border-color: #2b3a4a;'>", unsafe_allow_html=True)
+    for i in range(1, 10):
+        c1, c2, c3 = st.columns([4, 1, 4])
+        
+        with c1:
+            # CAMBIO AQUÍ: Cambiamos df.index por df_equipos.index
+            local = st.selectbox(f"Local {i}", df_equipos.index, key=f"loc_{i}", label_visibility="collapsed")
+        with c2:
+            st.markdown("<div style='text-align: center; font-weight: bold;'>VS</div>", unsafe_allow_html=True)
+        with c3:
+            # CAMBIO AQUÍ: Cambiamos df.index por df_equipos.index
+            visitante = st.selectbox(f"Visitante {i}", df_equipos.index, index=min(i, len(df_equipos.index)-1), key=f"vis_{i}", label_visibility="collapsed")
+        
+        partidos_jornada.append({"local": local, "visitante": visitante})
+        
+        # Una línea delgada para separar cada partido (Alineada dentro del for)
+        if i < 9:
+            st.markdown("<hr style='margin: 0.5em 0px; border-color: #2b3a4a;'>", unsafe_allow_html=True)
 
 st.write("") # Espacio en blanco
 
