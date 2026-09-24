@@ -300,333 +300,65 @@ def calcular_xcorners(row_local, row_visit):
 st.markdown("<h2 class='main-title'>LIGA MX - ESCÁNER DE JORNADA</h2>", unsafe_allow_html=True)
 st.write("")
 
-# Lista para guardar los 9 partidos
 partidos_jornada = []
 
-# Usamos un expander para que el menú se pueda colapsar y no estorbe después de calcular
 with st.expander("⚙️ CONFIGURAR LOS 9 CRUCES", expanded=True):
     for i in range(1, 10):
         c1, c2, c3 = st.columns([4, 1, 4])
-        
         with c1:
-            # CAMBIO AQUÍ: Cambiamos df.index por df_equipos.index
             local = st.selectbox(f"Local {i}", df_equipos.index, key=f"loc_{i}", label_visibility="collapsed")
         with c2:
             st.markdown("<div style='text-align: center; font-weight: bold;'>VS</div>", unsafe_allow_html=True)
         with c3:
-            # CAMBIO AQUÍ: Cambiamos df.index por df_equipos.index
             visitante = st.selectbox(f"Visitante {i}", df_equipos.index, index=min(i, len(df_equipos.index)-1), key=f"vis_{i}", label_visibility="collapsed")
         
         partidos_jornada.append({"local": local, "visitante": visitante})
-        
-        # Una línea delgada para separar cada partido (Alineada dentro del for)
         if i < 9:
             st.markdown("<hr style='margin: 0.5em 0px; border-color: #2b3a4a;'>", unsafe_allow_html=True)
 
-st.write("") # Espacio en blanco
+st.write("")
 
-# El botón gigante
 if st.button("🔥 ESCANEAR JORNADA COMPLETA 🔥", use_container_width=True, type="primary"):
-            st.success("¡Calculando probabilidades con distribución de Poisson para toda la jornada!")
-            
-            # Aquí Python correrá tu modelo matemático 9 veces seguidas
-            for partido in partidos_jornada:
-                eq_local = partido["local"]
-                eq_visitante = partido["visitante"]
-                
-                # Validación para que no pongas a jugar a un equipo contra sí mismo
-                if eq_local != eq_visitante:
-                    
-                    # Dibujamos una caja elegante para cada resultado
-                    with st.container(border=True):
-                        st.subheader(f"🏟️ {eq_local} vs {eq_visitante}")
-                        
-                        # --- AQUÍ VA TU MOTOR MATEMÁTICO ---
-                        # Copia y pega aquí la lógica que ya tenías para calcular xG_l, xG_v
-                        # generar la matriz_poisson y la función calcular_mercados()
-                        
-                        # (Ejemplo visual rápido para que veas cómo queda el esqueleto)
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Gana Local", "45%") # Aquí irá tu variable real
-                        with col2:
-                            st.metric("Empate", "25%") # Aquí irá tu variable real
-                        with col3:
-                            st.metric("Gana Visitante", "30%") # Aquí irá tu variable real
-                else:
-                    st.error(f"⚠️ Error en el partido: {eq_local} no puede jugar contra sí mismo.")
-
-# --- DICCIONARIO DE EMOJIS (Ponlo justo antes de los selectores) ---
-emojis_liga = {
-    "América": "🦅", "Guadalajara": "🐐", "Cruz Azul": "🚂", "Pumas": "🐾",
-    "Tigres": "🐯", "Monterrey": "⛰️", "Toluca": "👿", "Pachuca": "🐹",
-    "León": "🦁", "Santos": "😇", "Atlas": "🦊", "Necaxa": "⚡",
-    "Tijuana": "🐕", "Puebla": "🎽", "Juárez": "🐎", "Mazatlán": "⚓",
-    "Querétaro": "🐓", "San Luis": "⛪", "Atlante": "🦈"
-}
-
-st.subheader("🏟️ Selección de Partido")
-
-# Columnas asimétricas para encajar el logo y la barra
-col_logo_l, col_sel_l, col_vs, col_logo_v, col_sel_v = st.columns([1, 3, 1, 1, 3])
-
-# --- EQUIPO LOCAL ---
-with col_sel_l:
-    equipo_local = st.selectbox(
-        "🏠 Equipo Local", 
-        equipos, 
-        index=0, 
-        key="sb_local",
-        format_func=lambda x: f"{emojis_liga.get(x, '⚽')} {x}"
-    )
-
-with col_logo_l:
-    st.write("") 
-    ruta_logo_l = f"logos/{equipo_local}.png"
-    if os.path.exists(ruta_logo_l):
-        st.image(ruta_logo_l, width=50)
-    else:
-        st.image("https://cdn-icons-png.flaticon.com/512/53/53283.png", width=50)
-
-# --- VS EN MEDIO ---
-with col_vs:
-    st.markdown('<div class="vs-badge">VS</div>', unsafe_allow_html=True)
-
-# --- EQUIPO VISITANTE ---
-with col_sel_v:
-    idx_default = 1 if len(equipos) > 1 else 0
-    equipo_visitante = st.selectbox(
-        "✈️ Equipo Visitante", 
-        equipos, 
-        index=idx_default, 
-        key="sb_visit",
-        format_func=lambda x: f"{emojis_liga.get(x, '⚽')} {x}"
-    )
+    st.success("¡Calculando probabilidades con distribución de Poisson para toda la jornada!")
     
-with col_logo_v:
-    st.write("")
-    ruta_logo_v = f"logos/{equipo_visitante}.png"
-    if os.path.exists(ruta_logo_v):
-        st.image(ruta_logo_v, width=50)
-    else:
-        st.image("https://cdn-icons-png.flaticon.com/512/53/53283.png", width=50)
+    # Promedios de la liga necesarios para las matemáticas
+    liga_gf_avg = df_equipos["xG_favor"].mean()
+    liga_ga_avg = df_equipos["xGA_contra"].mean()
 
-st.write("") 
-_, col_btn, _ = st.columns([3, 4, 3])
-with col_btn:
-    calcular = st.button("🔥 GENERAR PICK", type="primary", use_container_width=True)
-
-if calcular:
-    
-    if equipo_local == equipo_visitante:
-        st.warning("⚠ Selecciona dos equipos distintos para poder calcular una predicción.")
-        st.session_state["resultado"] = None
-    else:
-        liga_gf_avg = df_equipos["xG_favor"].mean()
-        liga_ga_avg = df_equipos["xGA_contra"].mean()
-
-        row_local = df_equipos.loc[equipo_local]
-        row_visit = df_equipos.loc[equipo_visitante]
-
-        xg_l, xg_v = calcular_xg_esperado(row_local, row_visit, liga_gf_avg, liga_ga_avg)
-        matriz = generar_matriz_poisson(xg_l, xg_v)
-        mercados = calcular_mercados(matriz)
-        top3 = top_marcadores(matriz)
+    for partido in partidos_jornada:
+        eq_local = partido["local"]
+        eq_visitante = partido["visitante"]
         
-        # El cálculo de córners:
-        xc_l, xc_v, total_corners = calcular_xcorners(row_local, row_visit)
-
-        # GUARDANDO EN MEMORIA:
-        st.session_state["resultado"] = {
-            "local": equipo_local, 
-            "visitante": equipo_visitante,
-            "row_local": row_local, 
-            "row_visit": row_visit,
-            "xg_l": xg_l, 
-            "xg_v": xg_v,
-            "matriz": matriz, 
-            "mercados": mercados, 
-            "top3": top3,
-            "xc_l": xc_l, "xc_v": xc_v, "total_corners": total_corners, 
-        }
-
-# ==============================================================
-# 5. RENDERIZADO DE RESULTADOS
-# ==============================================================
-resultado = st.session_state.get("resultado")
-
-if resultado:
-    local = resultado["local"]
-    visitante = resultado["visitante"]
-    row_l = resultado["row_local"]
-    row_v = resultado["row_visit"]
-    xg_l = resultado["xg_l"]
-    xg_v = resultado["xg_v"]
-    matriz = resultado["matriz"]
-    mercados = resultado["mercados"]
-    top3 = resultado["top3"]
-
-    xc_l = resultado.get("xc_l", 0)
-    xc_v = resultado.get("xc_v", 0)
-    total_corners = resultado.get("total_corners", 0)
-
-    opciones_1x2 = {"Gana " + local: mercados["local"], "Empate": mercados["empate"], "Gana " + visitante: mercados["visitante"]}
-    pick_top = max(opciones_1x2, key=opciones_1x2.get)
-    st.markdown(
-        f'<div class="pick-banner">🏆 PICK SUGERIDO (1X2): <b>{pick_top}</b> '
-        f'&nbsp;·&nbsp; {opciones_1x2[pick_top]*100:.1f}% de probabilidad</div>',
-        unsafe_allow_html=True,
-    )
-
-    with st.expander("📊 Ver Inteligencia Matemática y Stats Base", expanded=False):
-        col_a, col_b = st.columns(2)
-        for col, nombre, row, xg_final in [(col_a, local, row_l, xg_l), (col_b, visitante, row_v, xg_v)]:
-            with col:
-                render_escudo(nombre, nombre)
-                st.markdown(f"**{nombre}**")
-                st.metric("xG Esperado (partido)", f"{xg_final:.2f}")
-                st.progress(min(xg_final / 3.0, 1.0))
-                st.metric("xGA Base (en contra)", f"{row['xGA_contra']:.2f}")
-                st.progress(min(row["xGA_contra"] / 2.0, 1.0))
-                st.metric("Forma Reciente", f"{row['Forma']*100:.0f}%")
-                st.progress(min(row["Forma"], 1.0))
-                st.metric("Jerarquía de Plantilla", f"{row['Jerarquia']:.0f}/10")
-                st.progress(min(row["Jerarquia"] / 10, 1.0))
-
-    st.divider()
-
-    # Layout de dos columnas: Izquierda para Métricas, Derecha para la Matriz Interactiva
-    col_izq, col_der = st.columns([5, 6])
-
-    with col_izq:
-        st.subheader("🎯 Marcador Exacto")
-        medallas = ["🥇 1er Lugar", "🥈 2do Lugar", "🥉 3er Lugar"]
-        cols_top = st.columns(3)
-        for i, ((gl, gv), prob) in enumerate(top3):
-            with cols_top[i]:
-                st.metric(medallas[i], f"{gl} - {gv}", delta=f"{prob*100:.1f}% prob.", delta_color="off")
-
-        st.divider()
-
-        st.subheader("💰 Mercado 1X2 (Moneyline)")
-        with st.container(border=True):
-            col_l, col_e, col_v = st.columns(3)
-            etiquetas_1x2 = [
-                (col_l, f"👑 {local}" if pick_top == "Gana " + local else local, mercados["local"]),
-                (col_e, "👑 Empate" if pick_top == "Empate" else "Empate", mercados["empate"]),
-                (col_v, f"👑 {visitante}" if pick_top == "Gana " + visitante else visitante, mercados["visitante"]),
-            ]
-            for col, label, prob in etiquetas_1x2:
-                with col:
-                    st.metric(label, f"{prob*100:.1f}%")
-                    st.progress(min(prob, 1.0))
-
-        st.divider()
-
-        st.subheader("📈 Mercado de Goles (Over/Under)")
-        with st.container(border=True):
-            goles_totales = xg_l + xg_v
-            # Primera fila (3 columnas)
-            c1, c2, c3 = st.columns(3)
-            with c1: st.metric("⚽ Goles Totales", f"{goles_totales:.2f}")
-            with c2: st.metric("🤝 Ambos Anotan", f"{mercados['btts']*100:.1f}%")
-            with c3: st.metric("🔥 Más de 2.5", f"{mercados['over25']*100:.1f}%")
-            
-            st.write("") # Espacio
-            
-            # Segunda fila (3 columnas)
-            c4, c5, c6 = st.columns(3)
-            with c4: st.metric("🧊 Menos de 3.5", f"{mercados['under35']*100:.1f}%") # <--- TU NUEVO MERCADO
-            with c5: st.metric(f"🛡️ Invicta {local}", f"{mercados['clean_sheet_local']*100:.1f}%")
-            with c6: st.metric(f"🛡️ Invicta {visitante}", f"{mercados['clean_sheet_visitante']*100:.1f}%")
-
-        st.divider()
-
-        st.subheader("🚩 Mercado de Tiros de Esquina (Córners)")
-        with st.container(border=True):
-            col_c1, col_c2, col_c3 = st.columns(3)
-            with col_c1: 
-                st.metric(f"🚩 Córners {local}", f"{xc_l}")
-            with col_c2: 
-                st.metric("🔥 TOTAL ESPERADO", f"{total_corners}")
-            with col_c3: 
-                st.metric(f"🚩 Córners {visitante}", f"{xc_v}")
-            
-            # --- NUEVO: ALGORITMO OVER / UNDER ---
-            st.write("") 
-            linea_apuesta = 9.5 
-            
-            if total_corners > linea_apuesta:
-                pick_corners = f"🔥 JUGAR AL OVER (Más de {linea_apuesta})"
-                color_pick = "#00ff9d" 
-            else:
-                pick_corners = f"🧊 JUGAR AL UNDER (Menos de {linea_apuesta})"
-                color_pick = "#00c3ff" 
+        if eq_local != eq_visitante:
+            with st.container(border=True):
+                st.subheader(f"🏟️ {eq_local} vs {eq_visitante}")
                 
-            st.markdown(
-                f"""
-                <div style="text-align:center; padding:10px; margin-top:5px; 
-                    border:1px dashed {color_pick}; color:{color_pick}; 
-                    border-radius:8px; font-weight:800; letter-spacing:1px;">
-                    🎯 SUGERENCIA DEL MODELO: {pick_corners}
-                </div>
-                """, 
-                unsafe_allow_html=True
-            )
-
-    with col_der:
-        st.subheader("📊 Matriz de Probabilidad por Resultado Exacto (%)")
-        
-        z_data = []
-        text_data = []
-        goles_rango = list(range(MATRIZ_MAX_GOLES + 1))
-        
-        for gl in goles_rango:
-            row_z = []
-            row_text = []
-            for gv in goles_rango:
-                prob = matriz.get((gl, gv), 0.0) * 100
-                row_z.append(prob)
-                row_text.append(f"{prob:.2f}%<br>{gl}-{gv}")
-            z_data.append(row_z)
-            text_data.append(row_text)
-
-        # Creación del Heatmap Premium con Plotly
-        fig = go.Figure(data=go.Heatmap(
-            z=z_data,
-            x=[str(x) for x in goles_rango],
-            y=[str(y) for y in goles_rango],
-            text=text_data,
-            texttemplate="%{text}",
-            textfont=dict(family="Arial", size=12, color="white"),
-            hoverinfo="text",
-            colorscale=[[0, '#0e1520'], [0.1, '#1d2a44'], [0.4, '#23607a'], [0.7, '#8b2516'], [1, '#c83219']],
-            showscale=False,
-            # 👇 AQUÍ ESTÁ LA MAGIA PARA QUITAR LO SÓLIDO 👇
-            opacity=0.65,  # 0.65 hace que el color sea semi-transparente
-            xgap=3,        # Crea un espacio de 3 pixeles entre las columnas
-            ygap=3         # Crea un espacio de 3 pixeles entre las filas
-        ))
-
-        fig.update_layout(
-            xaxis=dict(
-                title=dict(text=f"{visitante.upper()} (GOLES) →", font=dict(family="Arial", color="#ffd700")), 
-                side="top",
-                tickfont=dict(family="Courier New", color="#ffd700")
-            ),
-            yaxis=dict(
-                title=dict(text=f"← {local.upper()} (GOLES)", font=dict(family="Arial", color="#00ff9d")), 
-                autorange="reversed",
-                tickfont=dict(family="Courier New", color="#00ff9d")
-            ),
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)',
-            margin=dict(l=40, r=40, t=60, b=40),
-            width=550,
-            height=500
-        )
-        
-        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-        
-else:
-    st.info("👆 Selecciona ambos equipos y presiona **GENERAR PICK** para correr el modelo.")
+                # 1. Ejecutar las matemáticas reales
+                row_local = df_equipos.loc[eq_local]
+                row_visit = df_equipos.loc[eq_visitante]
+                
+                xg_l, xg_v = calcular_xg_esperado(row_local, row_visit, liga_gf_avg, liga_ga_avg)
+                matriz = generar_matriz_poisson(xg_l, xg_v)
+                mercados = calcular_mercados(matriz)
+                top3 = top_marcadores(matriz, top_n=3)
+                
+                # 2. Imprimir Probabilidades 1X2 reales
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric(f"Gana {eq_local}", f"{mercados['local']*100:.1f}%")
+                with col2:
+                    st.metric("Empate", f"{mercados['empate']*100:.1f}%")
+                with col3:
+                    st.metric(f"Gana {eq_visitante}", f"{mercados['visitante']*100:.1f}%")
+                
+                st.divider()
+                
+                # 3. Imprimir el Top 3 de Marcadores Exactos
+                st.markdown("**🎯 Top 3 Marcadores Exactos**")
+                c_m1, c_m2, c_m3 = st.columns(3)
+                medallas = ["🥇 1er", "🥈 2do", "🥉 3er"]
+                for idx, ((gl, gv), prob) in enumerate(top3):
+                    with [c_m1, c_m2, c_m3][idx]:
+                        st.metric(medallas[idx], f"{gl} - {gv}", delta=f"{prob*100:.1f}% prob.", delta_color="off")
+        else:
+            st.error(f"⚠️ Error: {eq_local} no puede jugar contra sí mismo.")
