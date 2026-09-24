@@ -296,17 +296,66 @@ def calcular_xcorners(row_local, row_visit):
     total_corners = corners_local + corners_visit
     return round(corners_local, 2), round(corners_visit, 2), round(total_corners, 2)
 
-# ==============================================================
-# 4. ENCABEZADO Y CONTROLES
-# ==============================================================
-# Al sacar el emoji de la etiqueta <div>, recupera su color normal
-st.markdown('<div style="text-align: center; font-size: 2.6rem;">⚽</div>', unsafe_allow_html=True)
-st.markdown('<div class="main-title">LIGA MX</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle"></div>', unsafe_allow_html=True)
+# --- SECCIÓN 4: PANEL MAESTRO DE JORNADA ---
+        st.markdown("<h2 class='main-title'>LIGA MX - ESCÁNER DE JORNADA</h2>", unsafe_allow_html=True)
+        st.write("")
 
-equipos = sorted(df_equipos.index.tolist())
+        # Lista para guardar los 9 partidos
+        partidos_jornada = []
 
-# --- DICCIONARIO DE EMOJIS (Ponlo justo antes de los selectores) ---
+        # Usamos un expander para que el menú se pueda colapsar y no estorbe después de calcular
+        with st.expander("⚙️ CONFIGURAR LOS 9 CRUCES", expanded=True):
+            for i in range(1, 10):
+                # Dividimos la pantalla en 3 columnas (Local, VS, Visitante)
+                c1, c2, c3 = st.columns([4, 1, 4])
+                
+                with c1:
+                    local = st.selectbox(f"Local Partido {i}", df.index, key=f"loc_{i}", label_visibility="collapsed")
+                with c2:
+                    st.markdown(f"<div style='text-align: center; font-weight: bold; margin-top: 5px;'>VS</div>", unsafe_allow_html=True)
+                with c3:
+                    # Le ponemos un 'index' diferente para que no seleccione el mismo equipo por defecto
+                    visitante = st.selectbox(f"Visitante Partido {i}", df.index, index=min(i, len(df.index)-1), key=f"vis_{i}", label_visibility="collapsed")
+                
+                # Guardamos la selección en nuestra lista
+                partidos_jornada.append({"local": local, "visitante": visitante})
+                
+                # Una línea delgada para separar cada partido
+                if i < 9:
+                    st.markdown("<hr style='margin: 0.5em 0px; border-color: #2b3a4a;'>", unsafe_allow_html=True)
+
+        st.write("") # Espacio en blanco
+
+        # El botón gigante
+        if st.button("🔥 ESCANEAR JORNADA COMPLETA 🔥", use_container_width=True, type="primary"):
+            st.success("¡Calculando probabilidades con distribución de Poisson para toda la jornada!")
+            
+            # Aquí Python correrá tu modelo matemático 9 veces seguidas
+            for partido in partidos_jornada:
+                eq_local = partido["local"]
+                eq_visitante = partido["visitante"]
+                
+                # Validación para que no pongas a jugar a un equipo contra sí mismo
+                if eq_local != eq_visitante:
+                    
+                    # Dibujamos una caja elegante para cada resultado
+                    with st.container(border=True):
+                        st.subheader(f"🏟️ {eq_local} vs {eq_visitante}")
+                        
+                        # --- AQUÍ VA TU MOTOR MATEMÁTICO ---
+                        # Copia y pega aquí la lógica que ya tenías para calcular xG_l, xG_v
+                        # generar la matriz_poisson y la función calcular_mercados()
+                        
+                        # (Ejemplo visual rápido para que veas cómo queda el esqueleto)
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Gana Local", "45%") # Aquí irá tu variable real
+                        with col2:
+                            st.metric("Empate", "25%") # Aquí irá tu variable real
+                        with col3:
+                            st.metric("Gana Visitante", "30%") # Aquí irá tu variable real
+                else:
+                    st.error(f"⚠️ Error en el partido: {eq_local} no puede jugar contra sí mismo.")# --- DICCIONARIO DE EMOJIS (Ponlo justo antes de los selectores) ---
 emojis_liga = {
     "América": "🦅", "Guadalajara": "🐐", "Cruz Azul": "🚂", "Pumas": "🐾",
     "Tigres": "🐯", "Monterrey": "⛰️", "Toluca": "👿", "Pachuca": "🐹",
