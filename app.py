@@ -319,40 +319,42 @@ with st.expander("⚙️ CONFIGURAR LOS 9 CRUCES", expanded=True):
                 
 # Una línea delgada para separar cada partido
 if i < 9:
-st.markdown("<hr style='margin: 0.5em 0px; border-color: #2b3a4a;'>", unsafe_allow_html=True)
+                    st.markdown("<hr style='margin: 0.5em 0px; border-color: #2b3a4a;'>", unsafe_allow_html=True)
 
 st.write("") # Espacio en blanco
 
 # El botón gigante
 if st.button("🔥 ESCANEAR JORNADA COMPLETA 🔥", use_container_width=True, type="primary"):
-st.success("¡Calculando probabilidades con distribución de Poisson para toda la jornada!")
+            st.success("¡Calculando probabilidades con distribución de Poisson para toda la jornada!")
             
-# Aquí Python correrá tu modelo matemático 9 veces seguidas
-for partido in partidos_jornada:
-eq_local = partido["local"]
-eq_visitante = partido["visitante"]
+            # Aquí Python correrá tu modelo matemático 9 veces seguidas
+            for partido in partidos_jornada:
+                eq_local = partido["local"]
+                eq_visitante = partido["visitante"]
                 
-# Validación para que no pongas a jugar a un equipo contra sí mismo
-if eq_local != eq_visitante:
-                   
-# Dibujamos una caja elegante para cada resultado
- with st.container(border=True):
-st.subheader(f"🏟️ {eq_local} vs {eq_visitante}")
+                # Validación para que no pongas a jugar a un equipo contra sí mismo
+                if eq_local != eq_visitante:
+                    
+                    # Dibujamos una caja elegante para cada resultado
+                    with st.container(border=True):
+                        st.subheader(f"🏟️ {eq_local} vs {eq_visitante}")
                         
-# --- AQUÍ VA TU MOTOR MATEMÁTICO ---
-# Copia y pega aquí la lógica que ya tenías para calcular xG_l, xG_v
-# generar la matriz_poisson y la función calcular_mercados()
+                        # --- AQUÍ VA TU MOTOR MATEMÁTICO ---
+                        # Copia y pega aquí la lógica que ya tenías para calcular xG_l, xG_v
+                        # generar la matriz_poisson y la función calcular_mercados()
                         
-# (Ejemplo visual rápido para que veas cómo queda el esqueleto)
-col1, col2, col3 = st.columns(3)
-with col1:
-st.metric("Gana Local", "45%") # Aquí irá tu variable real
-with col2:
-st.metric("Empate", "25%") # Aquí irá tu variable real
-with col3:
-st.metric("Gana Visitante", "30%") # Aquí irá tu variable real
-else:
-st.error(f"⚠️ Error en el partido: {eq_local} no puede jugar contra sí mismo.")# --- DICCIONARIO DE EMOJIS (Ponlo justo antes de los selectores) ---
+                        # (Ejemplo visual rápido para que veas cómo queda el esqueleto)
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Gana Local", "45%") # Aquí irá tu variable real
+                        with col2:
+                            st.metric("Empate", "25%") # Aquí irá tu variable real
+                        with col3:
+                            st.metric("Gana Visitante", "30%") # Aquí irá tu variable real
+                else:
+                    st.error(f"⚠️ Error en el partido: {eq_local} no puede jugar contra sí mismo.")
+
+# --- DICCIONARIO DE EMOJIS (Ponlo justo antes de los selectores) ---
 emojis_liga = {
     "América": "🦅", "Guadalajara": "🐐", "Cruz Azul": "🚂", "Pumas": "🐾",
     "Tigres": "🐯", "Monterrey": "⛰️", "Toluca": "👿", "Pachuca": "🐹",
