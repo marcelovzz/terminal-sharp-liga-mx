@@ -297,7 +297,7 @@ def calcular_xcorners(row_local, row_visit):
     return round(corners_local, 2), round(corners_visit, 2), round(total_corners, 2)
 
 # --- SECCIÓN 4: PANEL MAESTRO DE JORNADA ---
-        st.markdown("<h2 class='main-title'>LIGA MX - ESCÁNER DE JORNADA</h2>", unsafe_allow_html=True)
+ st.markdown("<h2 class='main-title'>LIGA MX - ESCÁNER DE JORNADA</h2>", unsafe_allow_html=True)
         st.write("")
 
         # Lista para guardar los 9 partidos
