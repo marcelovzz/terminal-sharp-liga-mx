@@ -9,11 +9,12 @@
 ==============================================================
 """
 
-import os
 import math
+import unicodedata
+from urllib.parse import quote
+
 import pandas as pd
 import streamlit as st
-import plotly.graph_objects as go
 
 CSV_PATH = "ligamx_stats_completo.csv"
 HOME_ADVANTAGE = 1.20      # Ventaja de localía (+20% al xG del local)
@@ -60,9 +61,6 @@ FALLBACK_BADGE = {
     "Puebla": ("PUE", "#1c3f94", "#ffffff"),
 }
 
-import unicodedata
-
-
 def _normalizar(texto):
     """minúsculas + sin acentos + sin espacios extra, para que el match de
     escudos no dependa de que el CSV tenga los acentos/mayúsculas exactos."""
@@ -80,7 +78,6 @@ def escudo_url(equipo):
     archivo = _ESCUDOS_NORMALIZADOS.get(_normalizar(equipo))
     if not archivo:
         return None
-    from urllib.parse import quote
     return f"{WIKI_COMMONS_BASE}{quote(archivo)}?width={ESCUDO_ANCHO_PX * 2}"
 
 def render_escudo(equipo, nombre_display):
@@ -130,7 +127,7 @@ st.markdown("""
         background: radial-gradient(circle at top, #10151c 0%, #05070a 100%);
     }
     h1, h2, h3 {
-        font-family: 'Arial', sans-serif; !important;
+        font-family: 'Arial', sans-serif !important;
         letter-spacing: 1px;
     }
     .main-title {
@@ -144,7 +141,6 @@ st.markdown("""
         -webkit-text-fill-color: transparent;
         /* 👆 -------------------------------------------------------------- 👆 */
         margin-bottom: 0;
-    }
     }
     .subtitle {
         text-align: center;
@@ -297,68 +293,97 @@ def calcular_xcorners(row_local, row_visit):
     return round(corners_local, 2), round(corners_visit, 2), round(total_corners, 2)
 
 # --- SECCIÓN 4: PANEL MAESTRO DE JORNADA ---
+NUM_PARTIDOS = 9
+
+
+def analizar_partido(eq_local, eq_visitante, liga_gf_avg, liga_ga_avg):
+    """Devuelve solo datos simples (dict/tuplas) para guardarlos en session_state."""
+    row_local = df_equipos.loc[eq_local]
+    row_visit = df_equipos.loc[eq_visitante]
+
+    xg_l, xg_v = calcular_xg_esperado(row_local, row_visit, liga_gf_avg, liga_ga_avg)
+    matriz = generar_matriz_poisson(xg_l, xg_v)
+
+    return {
+        "local": eq_local,
+        "visitante": eq_visitante,
+        "error": False,
+        "mercados": calcular_mercados(matriz),
+        "top3": top_marcadores(matriz, top_n=3),
+    }
+
+
+def render_resultado(r):
+    mercados = r["mercados"]
+    with st.container(border=True):
+        st.subheader(f"🏟️ {r['local']} vs {r['visitante']}")
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric(f"Gana {r['local']}", f"{mercados['local']*100:.1f}%")
+        with col2:
+            st.metric("Empate", f"{mercados['empate']*100:.1f}%")
+        with col3:
+            st.metric(f"Gana {r['visitante']}", f"{mercados['visitante']*100:.1f}%")
+
+        st.divider()
+
+        st.markdown("**🎯 Top 3 Marcadores Exactos**")
+        columnas = st.columns(3)
+        medallas = ["🥇 1er", "🥈 2do", "🥉 3er"]
+        for idx, ((gl, gv), prob) in enumerate(r["top3"]):
+            with columnas[idx]:
+                st.metric(medallas[idx], f"{gl} - {gv}", delta=f"{prob*100:.1f}% prob.", delta_color="off")
+
+
 st.markdown("<h2 class='main-title'>LIGA MX - ESCÁNER DE JORNADA</h2>", unsafe_allow_html=True)
 st.write("")
 
-partidos_jornada = []
-
 with st.expander("⚙️ CONFIGURAR LOS 9 CRUCES", expanded=True):
-    for i in range(1, 10):
-        c1, c2, c3 = st.columns([4, 1, 4])
-        with c1:
-            local = st.selectbox(f"Local {i}", df_equipos.index, key=f"loc_{i}", label_visibility="collapsed")
-        with c2:
-            st.markdown("<div style='text-align: center; font-weight: bold;'>VS</div>", unsafe_allow_html=True)
-        with c3:
-            visitante = st.selectbox(f"Visitante {i}", df_equipos.index, index=min(i, len(df_equipos.index)-1), key=f"vis_{i}", label_visibility="collapsed")
-        
-        partidos_jornada.append({"local": local, "visitante": visitante})
-        if i < 9:
-            st.markdown("<hr style='margin: 0.5em 0px; border-color: #2b3a4a;'>", unsafe_allow_html=True)
+    # El form agrupa los 18 selectores: no se re-ejecuta el script hasta pulsar el botón.
+    with st.form("form_jornada"):
+        partidos_jornada = []
+        for i in range(1, NUM_PARTIDOS + 1):
+            c1, c2, c3 = st.columns([4, 1, 4])
+            with c1:
+                local = st.selectbox(f"Local {i}", df_equipos.index, key=f"loc_{i}", label_visibility="collapsed")
+            with c2:
+                st.markdown("<div style='text-align: center; font-weight: bold;'>VS</div>", unsafe_allow_html=True)
+            with c3:
+                visitante = st.selectbox(
+                    f"Visitante {i}", df_equipos.index,
+                    index=min(i, len(df_equipos.index) - 1),
+                    key=f"vis_{i}", label_visibility="collapsed",
+                )
+
+            partidos_jornada.append({"local": local, "visitante": visitante})
+            if i < NUM_PARTIDOS:
+                st.markdown("<hr style='margin: 0.5em 0px; border-color: #2b3a4a;'>", unsafe_allow_html=True)
+
+        escanear = st.form_submit_button("🔥 ESCANEAR JORNADA COMPLETA 🔥", use_container_width=True, type="primary")
 
 st.write("")
 
-if st.button("🔥 ESCANEAR JORNADA COMPLETA 🔥", use_container_width=True, type="primary"):
-    st.success("¡Calculando probabilidades con distribución de Poisson para toda la jornada!")
-    
-    # Promedios de la liga necesarios para las matemáticas
+# Al enviar el form: calcular y GUARDAR en session_state.
+if escanear:
     liga_gf_avg = df_equipos["xG_favor"].mean()
     liga_ga_avg = df_equipos["xGA_contra"].mean()
 
-    for partido in partidos_jornada:
-        eq_local = partido["local"]
-        eq_visitante = partido["visitante"]
-        
-        if eq_local != eq_visitante:
-            with st.container(border=True):
-                st.subheader(f"🏟️ {eq_local} vs {eq_visitante}")
-                
-                # 1. Ejecutar las matemáticas reales
-                row_local = df_equipos.loc[eq_local]
-                row_visit = df_equipos.loc[eq_visitante]
-                
-                xg_l, xg_v = calcular_xg_esperado(row_local, row_visit, liga_gf_avg, liga_ga_avg)
-                matriz = generar_matriz_poisson(xg_l, xg_v)
-                mercados = calcular_mercados(matriz)
-                top3 = top_marcadores(matriz, top_n=3)
-                
-                # 2. Imprimir Probabilidades 1X2 reales
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric(f"Gana {eq_local}", f"{mercados['local']*100:.1f}%")
-                with col2:
-                    st.metric("Empate", f"{mercados['empate']*100:.1f}%")
-                with col3:
-                    st.metric(f"Gana {eq_visitante}", f"{mercados['visitante']*100:.1f}%")
-                
-                st.divider()
-                
-                # 3. Imprimir el Top 3 de Marcadores Exactos
-                st.markdown("**🎯 Top 3 Marcadores Exactos**")
-                c_m1, c_m2, c_m3 = st.columns(3)
-                medallas = ["🥇 1er", "🥈 2do", "🥉 3er"]
-                for idx, ((gl, gv), prob) in enumerate(top3):
-                    with [c_m1, c_m2, c_m3][idx]:
-                        st.metric(medallas[idx], f"{gl} - {gv}", delta=f"{prob*100:.1f}% prob.", delta_color="off")
+    resultados = []
+    for p in partidos_jornada:
+        if p["local"] == p["visitante"]:
+            resultados.append({"local": p["local"], "visitante": p["visitante"], "error": True})
         else:
-            st.error(f"⚠️ Error: {eq_local} no puede jugar contra sí mismo.")
+            resultados.append(analizar_partido(p["local"], p["visitante"], liga_gf_avg, liga_ga_avg))
+
+    st.session_state["resultados_jornada"] = resultados
+    st.success("¡Probabilidades calculadas con distribución de Poisson para toda la jornada!")
+
+# Render SIEMPRE desde session_state: los resultados sobreviven a cualquier re-ejecución.
+resultados_guardados = st.session_state.get("resultados_jornada")
+if resultados_guardados:
+    for r in resultados_guardados:
+        if r["error"]:
+            st.error(f"⚠️ Error: {r['local']} no puede jugar contra sí mismo.")
+        else:
+            render_resultado(r)
