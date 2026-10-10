@@ -9,11 +9,13 @@
 ==============================================================
 """
 
+import html
 import math
 import unicodedata
 from urllib.parse import quote
 
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 CSV_PATH = "ligamx_stats_completo.csv"
@@ -22,6 +24,8 @@ MAX_GOLES_CALCULO = 10     # Rango de la matriz para mercados (precisión)
 MAX_GOLES_DISPLAY = 5      # Rango a mostrar en "marcadores exactos" (0-0 a 5-5)
 MATRIZ_MAX_GOLES = 6       # Rango exacto de la matriz visual (0 a 6 goles)
 ESCUDO_ANCHO_PX = 110       # Ancho uniforme de los escudos
+ESCUDO_CARD_PX = 80          # Ancho de los escudos en el encabezado de cada partido
+LINEA_CORNERS = 9.5         # Línea de casino para el mercado de córners
 
 
 # ==============================================================
@@ -80,21 +84,22 @@ def escudo_url(equipo):
         return None
     return f"{WIKI_COMMONS_BASE}{quote(archivo)}?width={ESCUDO_ANCHO_PX * 2}"
 
-def render_escudo(equipo, nombre_display):
+def render_escudo(equipo, nombre_display, ancho=ESCUDO_ANCHO_PX):
     url = escudo_url(equipo)
     if url:
-        st.image(url, width=ESCUDO_ANCHO_PX)
+        st.image(url, width=ancho)
     else:
         iniciales, color_fondo, color_texto = _FALLBACK_NORMALIZADO.get(
             _normalizar(equipo), (nombre_display[:3].upper(), "#333333", "#ffffff")
         )
+        iniciales = html.escape(iniciales)
         st.markdown(
             f"""
             <div style="
-                width:{ESCUDO_ANCHO_PX}px; height:{ESCUDO_ANCHO_PX}px;
+                width:{ancho}px; height:{ancho}px; margin:0 auto;
                 border-radius:50%; background:{color_fondo}; color:{color_texto};
                 display:flex; align-items:center; justify-content:center;
-                font-family:'Courier New', monospace; font-weight:800; font-size:1.3rem;
+                font-family:'Courier New', monospace; font-weight:800; font-size:{max(0.9, ancho / 85):.2f}rem;
                 border:2px solid rgba(255,255,255,0.25); margin-bottom:4px;">
                 {iniciales}
             </div>
@@ -195,6 +200,10 @@ st.markdown("""
         text-transform: uppercase;
         border-radius: 8px;
         border: 1px solid #00ff9d;
+    }
+    div[data-testid="stImage"] {
+        display: flex;
+        justify-content: center;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -297,12 +306,17 @@ NUM_PARTIDOS = 9
 
 
 def analizar_partido(eq_local, eq_visitante, liga_gf_avg, liga_ga_avg):
-    """Devuelve solo datos simples (dict/tuplas) para guardarlos en session_state."""
+    """Devuelve solo datos simples (dict/listas/tuplas) para guardarlos en session_state."""
     row_local = df_equipos.loc[eq_local]
     row_visit = df_equipos.loc[eq_visitante]
 
     xg_l, xg_v = calcular_xg_esperado(row_local, row_visit, liga_gf_avg, liga_ga_avg)
     matriz = generar_matriz_poisson(xg_l, xg_v)
+    xc_l, xc_v, xc_total = calcular_xcorners(row_local, row_visit)
+
+    # Submatriz 0..MATRIZ_MAX_GOLES para el mapa de calor (listas simples, no dict con tuplas)
+    n = MATRIZ_MAX_GOLES
+    matriz_visual = [[matriz[(gl, gv)] for gv in range(n + 1)] for gl in range(n + 1)]
 
     return {
         "local": eq_local,
@@ -310,14 +324,68 @@ def analizar_partido(eq_local, eq_visitante, liga_gf_avg, liga_ga_avg):
         "error": False,
         "mercados": calcular_mercados(matriz),
         "top3": top_marcadores(matriz, top_n=3),
+        "xc_local": xc_l,
+        "xc_visitante": xc_v,
+        "xc_total": xc_total,
+        "matriz_visual": matriz_visual,
+        "cobertura_matriz": sum(sum(fila) for fila in matriz_visual),
     }
 
 
-def render_resultado(r):
+def recomendacion_corners(total, linea=LINEA_CORNERS):
+    """Compara el total proyectado contra la línea. Devuelve (texto, diferencia)."""
+    dif = total - linea
+    if dif > 0:
+        return f"OVER {linea}", dif
+    if dif < 0:
+        return f"UNDER {linea}", dif
+    return "SIN VENTAJA (empata la línea)", dif
+
+
+def construir_matriz_plotly(r):
+    """Mapa de calor: filas = goles del local, columnas = goles del visitante."""
+    etiquetas = list(range(MATRIZ_MAX_GOLES + 1))
+    z = [[p * 100 for p in fila] for fila in r["matriz_visual"]]
+
+    fig = go.Figure(go.Heatmap(
+        z=z, x=etiquetas, y=etiquetas,
+        colorscale=[[0.0, "#0b1118"], [0.5, "#0d5c4a"], [1.0, "#00ff9d"]],
+        showscale=False,
+        xgap=2, ygap=2,
+        texttemplate="%{z:.1f}%",
+        textfont=dict(family="Arial", size=12),
+        hovertemplate=(f"{r['local']} %{{y}} - %{{x}} {r['visitante']}"
+                       "<br>Probabilidad: %{z:.2f}%<extra></extra>"),
+    ))
+    fig.update_layout(
+        height=380,
+        margin=dict(l=10, r=10, t=10, b=10),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Arial", color="#b8c4cf"),
+        xaxis=dict(title=f"Goles {r['visitante']} (visitante)", dtick=1),
+        yaxis=dict(title=f"Goles {r['local']} (local)", dtick=1, autorange="reversed"),
+    )
+    return fig
+
+
+def render_resultado(r, idx):
     mercados = r["mercados"]
     with st.container(border=True):
-        st.subheader(f"🏟️ {r['local']} vs {r['visitante']}")
+        # --- Encabezado: escudo local | nombres | escudo visitante ---
+        c_esc_l, c_centro, c_esc_v = st.columns([1, 3, 1], vertical_alignment="center")
+        with c_esc_l:
+            render_escudo(r["local"], r["local"], ancho=ESCUDO_CARD_PX)
+        with c_centro:
+            st.markdown(
+                f"<h3 style='text-align:center; margin:0;'>🏟️ {html.escape(r['local'])} "
+                f"<span style='color:#ffd700;'>vs</span> {html.escape(r['visitante'])}</h3>",
+                unsafe_allow_html=True,
+            )
+        with c_esc_v:
+            render_escudo(r["visitante"], r["visitante"], ancho=ESCUDO_CARD_PX)
 
+        # --- 1X2 ---
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric(f"Gana {r['local']}", f"{mercados['local']*100:.1f}%")
@@ -328,12 +396,53 @@ def render_resultado(r):
 
         st.divider()
 
+        # --- Top 3 marcadores exactos ---
         st.markdown("**🎯 Top 3 Marcadores Exactos**")
         columnas = st.columns(3)
         medallas = ["🥇 1er", "🥈 2do", "🥉 3er"]
-        for idx, ((gl, gv), prob) in enumerate(r["top3"]):
-            with columnas[idx]:
-                st.metric(medallas[idx], f"{gl} - {gv}", delta=f"{prob*100:.1f}% prob.", delta_color="off")
+        for i, ((gl, gv), prob) in enumerate(r["top3"]):
+            with columnas[i]:
+                st.metric(medallas[i], f"{gl} - {gv}", delta=f"{prob*100:.1f}% prob.", delta_color="off")
+
+        st.divider()
+
+        # --- Mercados de goles ---
+        st.markdown("**⚽ Mercados de Goles**")
+        g1, g2, g3 = st.columns(3)
+        with g1:
+            st.metric("Over 2.5", f"{mercados['over25']*100:.1f}%")
+        with g2:
+            st.metric("Under 3.5", f"{mercados['under35']*100:.1f}%")
+        with g3:
+            st.metric("Ambos Anotan (BTTS)", f"{mercados['btts']*100:.1f}%")
+
+        st.divider()
+
+        # --- Mercado de córners ---
+        st.markdown("**🚩 Mercado de Córners (xCorners)**")
+        k1, k2, k3 = st.columns(3)
+        with k1:
+            st.metric(f"xC {r['local']}", f"{r['xc_local']:.2f}")
+        with k2:
+            st.metric(f"xC {r['visitante']}", f"{r['xc_visitante']:.2f}")
+        with k3:
+            st.metric("Total proyectado", f"{r['xc_total']:.2f}")
+
+        pick, dif = recomendacion_corners(r["xc_total"])
+        st.markdown(
+            f"<div class='pick-banner' style='margin:0.8rem 0 0.4rem 0;'>"
+            f"🚩 Línea {LINEA_CORNERS} · Proyección {r['xc_total']:.2f} "
+            f"({dif:+.2f}) → <b>{pick}</b></div>",
+            unsafe_allow_html=True,
+        )
+
+        # --- Matriz de probabilidad (colapsable) ---
+        with st.expander("📊 Ver Matriz de Probabilidad Exacta"):
+            st.plotly_chart(construir_matriz_plotly(r), theme=None, key=f"matriz_{idx}")
+            st.caption(
+                f"Cubre marcadores de 0 a {MATRIZ_MAX_GOLES} goles por equipo "
+                f"({r['cobertura_matriz']*100:.1f}% de la probabilidad total)."
+            )
 
 
 st.markdown("<h2 class='main-title'>LIGA MX - ESCÁNER DE JORNADA</h2>", unsafe_allow_html=True)
@@ -382,8 +491,8 @@ if escanear:
 # Render SIEMPRE desde session_state: los resultados sobreviven a cualquier re-ejecución.
 resultados_guardados = st.session_state.get("resultados_jornada")
 if resultados_guardados:
-    for r in resultados_guardados:
+    for idx, r in enumerate(resultados_guardados):
         if r["error"]:
             st.error(f"⚠️ Error: {r['local']} no puede jugar contra sí mismo.")
         else:
-            render_resultado(r)
+            render_resultado(r, idx)
