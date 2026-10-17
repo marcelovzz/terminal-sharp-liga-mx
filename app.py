@@ -2,12 +2,14 @@
 # -*- coding: utf-8 -*-
 """
 ==============================================================
- TERMINAL SHARP: LIGA MX (PRO QUANT EDITION)
+ TERMINAL SHARP: LIGA MX (ELITE SYNDICATE EDITION)
  Dashboard web de predicción cuantitativa:
  - Modelo Poisson + Corrección Dixon-Coles
  - Amortiguación de xG + Localía Dinámica por Altitud/Estadio
  - Modelo de Córners por Dominio (Game State) + Poisson PMF
- - Escáner de Jornada Completa (9 Partidos) con st.form
+ - Calculadora de Momios Justos (Fair Odds: Decimal y Americano)
+ - Mercados Asiáticos (Draw No Bet, Doble Oportunidad, Hándicap -1.5)
+ - RADAR EJECUTIVO DE LA JORNADA (Top Picks Automáticos)
 ==============================================================
 """
 
@@ -211,9 +213,42 @@ st.markdown("""
         padding: 12px 18px;
         font-family: 'Arial', sans-serif;
         color: #ffd700;
-        font-size: 1.1rem;
+        font-size: 1.08rem;
         text-align: center;
         margin: 0.8rem 0 1.2rem 0;
+    }
+    .radar-card {
+        background: linear-gradient(145deg, rgba(16,25,35,0.95), rgba(8,12,18,0.95));
+        border: 1px solid rgba(255, 215, 0, 0.35);
+        border-radius: 12px;
+        padding: 14px;
+        height: 100%;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    }
+    .radar-title {
+        color: #ffd700;
+        font-size: 0.82rem;
+        font-weight: 800;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        margin-bottom: 6px;
+    }
+    .radar-match {
+        color: #ffffff;
+        font-size: 1.05rem;
+        font-weight: 700;
+        margin-bottom: 4px;
+    }
+    .radar-pick {
+        color: #00ff9d;
+        font-size: 1.35rem;
+        font-weight: 900;
+        margin-bottom: 4px;
+    }
+    .radar-odds {
+        color: #9baab8;
+        font-size: 0.82rem;
+        font-family: 'Courier New', monospace;
     }
     div.stButton > button {
         font-family: 'Arial', sans-serif;
@@ -254,7 +289,7 @@ except ValueError as e:
 
 
 # ==============================================================
-# 3. MOTOR MATEMÁTICO AVANZADO (Poisson + Dixon-Coles + Amortiguación)
+# 3. MOTOR MATEMÁTICO AVANZADO Y MOMIOS JUSTOS (FAIR ODDS)
 # ==============================================================
 def poisson_pmf(k, lam):
     if lam <= 0:
@@ -262,35 +297,46 @@ def poisson_pmf(k, lam):
     return (lam ** k) * math.exp(-lam) / math.factorial(k)
 
 
+def formatear_momio_justo(prob):
+    """
+    Convierte una probabilidad (0 a 1) en Cuota Justa (Fair Odd)
+    tanto en formato Decimal (ej. 1.85) como Americano (ej. -118 o +140).
+    """
+    if prob <= 0.005:
+        return "99.0 (+9800)"
+    if prob >= 0.995:
+        return "1.01 (-10000)"
+
+    decimal_odd = 1.0 / prob
+    if prob >= 0.5:
+        americano = -int(round((prob / (1.0 - prob)) * 100))
+        str_amer = f"{americano}"
+    else:
+        americano = int(round(((1.0 - prob) / prob) * 100))
+        str_amer = f"+{americano}"
+
+    return f"{decimal_odd:.2f} ({str_amer})"
+
+
 def obtener_factor_localia(eq_local, row_local):
-    """Obtiene la localía del CSV si existe la columna 'Localia', si no usa el diccionario por estadio."""
     if "Localia" in row_local and pd.notna(row_local["Localia"]):
         return float(row_local["Localia"])
     return _LOCALIA_NORMALIZADA.get(_normalizar(eq_local), HOME_ADVANTAGE_DEFAULT)
 
 
 def calcular_xg_esperado(eq_local, row_local, row_visit, liga_gf_avg, liga_ga_avg):
-    """
-    Calcula el xG esperado con amortiguación para evitar doble conteo
-    entre el xG base de la temporada, la Forma y la Jerarquía.
-    """
     ataque_local = row_local["xG_favor"] / liga_gf_avg
     defensa_visit = row_visit["xGA_contra"] / liga_ga_avg
     ataque_visit = row_visit["xG_favor"] / liga_gf_avg
     defensa_local = row_local["xGA_contra"] / liga_ga_avg
 
-    # Suavizamos la interacción ataque vs defensa (exponente 0.85 evita picos irreales)
     fuerza_base_local = (ataque_local * defensa_visit) ** 0.85
     fuerza_base_visit = (ataque_visit * defensa_local) ** 0.85
 
-    # Amortiguación de Forma: impacto máximo de ±8% (0.92 a 1.08) en vez de ±15%
     forma_local = 0.92 + (row_local["Forma"] * 0.16)
     forma_visit = 0.92 + (row_visit["Forma"] * 0.16)
 
-    # Amortiguación de Jerarquía: 1% por punto de diferencia (máx ±9%)
     diff_jerarquia = (row_local["Jerarquia"] - row_visit["Jerarquia"]) * 0.01
-
-    # Localía específica por cancha/altitud
     ventaja_local = obtener_factor_localia(eq_local, row_local)
 
     xg_local = (liga_gf_avg * fuerza_base_local * ventaja_local
@@ -298,7 +344,6 @@ def calcular_xg_esperado(eq_local, row_local, row_visit, liga_gf_avg, liga_ga_av
     xg_visit = (liga_gf_avg * fuerza_base_visit
                 * forma_visit * (1 - diff_jerarquia))
 
-    # Límites de seguridad estadísticos (clamp)
     xg_local = max(0.25, min(xg_local, 3.80))
     xg_visit = max(0.20, min(xg_visit, 3.50))
 
@@ -306,7 +351,6 @@ def calcular_xg_esperado(eq_local, row_local, row_visit, liga_gf_avg, liga_ga_av
 
 
 def tau_dixon_coles(gl, gv, xg_local, xg_visit, rho=DIXON_COLES_RHO):
-    """Factor de ajuste Tau de Dixon-Coles para corregir la subestimación de empates bajos."""
     if gl == 0 and gv == 0:
         return max(0.0, 1.0 - (xg_local * xg_visit * rho))
     elif gl == 0 and gv == 1:
@@ -319,7 +363,6 @@ def tau_dixon_coles(gl, gv, xg_local, xg_visit, rho=DIXON_COLES_RHO):
 
 
 def generar_matriz_poisson(xg_local, xg_visit, max_goles=MAX_GOLES_CALCULO):
-    """Genera la matriz de probabilidad de goles aplicando la corrección de Dixon-Coles y normalizando."""
     matriz = {}
     suma_total = 0.0
 
@@ -327,13 +370,10 @@ def generar_matriz_poisson(xg_local, xg_visit, max_goles=MAX_GOLES_CALCULO):
         p_l = poisson_pmf(gl, xg_local)
         for gv in range(max_goles + 1):
             p_v = poisson_pmf(gv, xg_visit)
-            prob_base = p_l * p_v
-            ajuste_dc = tau_dixon_coles(gl, gv, xg_local, xg_visit)
-            prob_final = prob_base * ajuste_dc
+            prob_final = (p_l * p_v) * tau_dixon_coles(gl, gv, xg_local, xg_visit)
             matriz[(gl, gv)] = prob_final
             suma_total += prob_final
 
-    # Re-normalizar para garantizar que la suma de toda la matriz sea exactamente 1.0 (100%)
     if suma_total > 0:
         for k in matriz:
             matriz[k] /= suma_total
@@ -343,8 +383,9 @@ def generar_matriz_poisson(xg_local, xg_visit, max_goles=MAX_GOLES_CALCULO):
 
 def calcular_mercados(matriz):
     p_local = p_empate = p_visit = 0.0
-    p_btts = p_over25 = p_under35 = 0.0
+    p_btts = p_over25 = p_under25 = p_under35 = 0.0
     p_clean_local = p_clean_visit = 0.0
+    p_handicap_local_15 = p_handicap_visit_15 = 0.0
 
     for (gl, gv), p in matriz.items():
         if gl > gv:
@@ -358,6 +399,8 @@ def calcular_mercados(matriz):
             p_btts += p
         if (gl + gv) >= 3:
             p_over25 += p
+        else:
+            p_under25 += p
         if (gl + gv) <= 3:
             p_under35 += p
         if gv == 0:
@@ -365,10 +408,28 @@ def calcular_mercados(matriz):
         if gl == 0:
             p_clean_visit += p
 
+        # Hándicaps Asiáticos (-1.5: ganar por 2 o más goles)
+        if (gl - gv) >= 2:
+            p_handicap_local_15 += p
+        if (gv - gl) >= 2:
+            p_handicap_visit_15 += p
+
+    # Mercados de Protección: Empate No Acción (Draw No Bet) y Doble Oportunidad
+    sin_empate = p_local + p_visit
+    dnb_local = (p_local / sin_empate) if sin_empate > 0 else 0.5
+    dnb_visit = (p_visit / sin_empate) if sin_empate > 0 else 0.5
+
+    doble_1x = p_local + p_empate
+    doble_x2 = p_visit + p_empate
+
     return {
         "local": p_local, "empate": p_empate, "visitante": p_visit,
-        "btts": p_btts, "over25": p_over25, "under35": p_under35,
+        "btts": p_btts, "no_btts": 1.0 - p_btts,
+        "over25": p_over25, "under25": p_under25, "under35": p_under35,
         "clean_sheet_local": p_clean_local, "clean_sheet_visitante": p_clean_visit,
+        "dnb_local": dnb_local, "dnb_visit": dnb_visit,
+        "doble_1x": doble_1x, "doble_x2": doble_x2,
+        "hc_local_15": p_handicap_local_15, "hc_visit_15": p_handicap_visit_15,
     }
 
 
@@ -378,14 +439,9 @@ def top_marcadores(matriz, top_n=3, max_goles=MAX_GOLES_DISPLAY):
 
 
 def calcular_xcorners(row_local, row_visit, xg_local, xg_visit, linea=LINEA_CORNERS):
-    """
-    Calcula córners esperados ajustando por Dominio Territorial (xG Ratio)
-    y obtiene la probabilidad exacta del Over/Under mediante distribución de Poisson.
-    """
     base_local = (row_local["Corners_Favor"] + row_visit["Corners_Contra"]) / 2.0
     base_visit = (row_visit["Corners_Favor"] + row_local["Corners_Contra"]) / 2.0
 
-    # Ajuste por dominio (Game State): quien proyecta más ataque genera más córners
     dominio_local = (xg_local / max(xg_visit, 0.3)) ** 0.12
     dominio_visit = (xg_visit / max(xg_local, 0.3)) ** 0.12
 
@@ -393,7 +449,6 @@ def calcular_xcorners(row_local, row_visit, xg_local, xg_visit, linea=LINEA_CORN
     corners_visit = base_visit * dominio_visit
     total_corners = corners_local + corners_visit
 
-    # Probabilidad acumulada de Poisson para superar la línea (ej. 9.5 -> 10 o más córners)
     k_max_under = int(math.floor(linea))
     prob_under = sum(poisson_pmf(k, total_corners) for k in range(k_max_under + 1))
     prob_over = max(0.0, min(1.0, 1.0 - prob_under))
@@ -408,10 +463,9 @@ def calcular_xcorners(row_local, row_visit, xg_local, xg_visit, linea=LINEA_CORN
 
 
 # ==============================================================
-# 4. LÓGICA DE ANÁLISIS Y RENDERIZADO DE TARJETAS
+# 4. LÓGICA DE ANÁLISIS, RADAR EJECUTIVO Y TARJETAS
 # ==============================================================
 def analizar_partido(eq_local, eq_visitante, liga_gf_avg, liga_ga_avg):
-    """Ejecuta todos los cálculos del partido y empaqueta los resultados para session_state."""
     row_local = df_equipos.loc[eq_local]
     row_visit = df_equipos.loc[eq_visitante]
 
@@ -445,8 +499,85 @@ def analizar_partido(eq_local, eq_visitante, liga_gf_avg, liga_ga_avg):
     }
 
 
+def render_radar_jornada(resultados_validos):
+    """
+    PUNTO 2: Escanea los partidos válidos de la jornada y construye un
+    tablero ejecutivo con los 4 picks más fuertes de toda la semana.
+    """
+    if not resultados_validos:
+        return
+
+    st.markdown("### 🚨 RADAR EJECUTIVO DE LA JORNADA (TOP PICKS MATEMÁTICOS)")
+    st.caption("Filtro automático de los cruces con mayor certidumbre estadística. Úsalos como base para tus apuestas derechas o parlays.")
+
+    # 1. El "Lock" 1X2 (Mayor probabilidad de victoria directa Local o Visitante)
+    mejor_1x2 = None
+    max_prob_1x2 = -1.0
+    for r in resultados_validos:
+        m = r["mercados"]
+        if m["local"] > max_prob_1x2:
+            max_prob_1x2 = m["local"]
+            mejor_1x2 = (r, f"Gana {r['local']}", m["local"], f"DNB: {m['dnb_local']*100:.1f}%")
+        if m["visitante"] > max_prob_1x2:
+            max_prob_1x2 = m["visitante"]
+            mejor_1x2 = (r, f"Gana {r['visitante']}", m["visitante"], f"DNB: {m['dnb_visit']*100:.1f}%")
+
+    # 2. La Fija de Goles (Mayor tendencia en Over 2.5 o Under 2.5)
+    mejor_goles = None
+    max_prob_goles = -1.0
+    for r in resultados_validos:
+        m = r["mercados"]
+        if m["over25"] > max_prob_goles:
+            max_prob_goles = m["over25"]
+            mejor_goles = (r, "Over 2.5 Goles", m["over25"], f"xG Total: {r['xg_l'] + r['xg_v']:.2f}")
+        if m["under25"] > max_prob_goles:
+            max_prob_goles = m["under25"]
+            mejor_goles = (r, "Under 2.5 Goles", m["under25"], f"xG Total: {r['xg_l'] + r['xg_v']:.2f}")
+
+    # 3. El Imán de Ambos Anotan (Mayor probabilidad de BTTS Sí)
+    mejor_btts_r = max(resultados_validos, key=lambda x: x["mercados"]["btts"])
+    prob_btts_top = mejor_btts_r["mercados"]["btts"]
+
+    # 4. El Rey del Córner (Mayor certidumbre en Over/Under 9.5 córners)
+    mejor_corner = None
+    max_prob_c = -1.0
+    for r in resultados_validos:
+        if r["prob_over_c"] > max_prob_c:
+            max_prob_c = r["prob_over_c"]
+            mejor_corner = (r, f"Over {LINEA_CORNERS} Córners", r["prob_over_c"], f"Proy: {r['total_corners']} córners")
+        if r["prob_under_c"] > max_prob_c:
+            max_prob_c = r["prob_under_c"]
+            mejor_corner = (r, f"Under {LINEA_CORNERS} Córners", r["prob_under_c"], f"Proy: {r['total_corners']} córners")
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    tarjetas_radar = [
+        (c1, "🔒 EL LOCK (1X2)", mejor_1x2[0], mejor_1x2[1], mejor_1x2[2], mejor_1x2[3]),
+        (c2, "⚽ FIJA DE GOLES (2.5)", mejor_goles[0], mejor_goles[1], mejor_goles[2], mejor_goles[3]),
+        (c3, "🤝 AMBOS ANOTAN (BTTS)", mejor_btts_r, "Ambos Anotan: SÍ", prob_btts_top, f"xG: {mejor_btts_r['xg_l']:.2f} vs {mejor_btts_r['xg_v']:.2f}"),
+        (c4, "🚩 REY DEL CÓRNER", mejor_corner[0], mejor_corner[1], mejor_corner[2], mejor_corner[3]),
+    ]
+
+    for col, titulo, r_match, pick_str, prob_val, extra_info in tarjetas_radar:
+        with col:
+            momio_str = formatear_momio_justo(prob_val)
+            st.markdown(
+                f"""
+                <div class="radar-card">
+                    <div class="radar-title">{titulo}</div>
+                    <div class="radar-match">{EMOJIS_LIGA.get(r_match['local'], '⚽')} {r_match['local']} vs {r_match['visitante']} {EMOJIS_LIGA.get(r_match['visitante'], '⚽')}</div>
+                    <div class="radar-pick">{pick_str} ({prob_val*100:.1f}%)</div>
+                    <div class="radar-odds">Cuota Justa: <b>{momio_str}</b><br>{extra_info}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    st.write("")
+    st.divider()
+
+
 def crear_heatmap_plotly(matriz, local, visitante):
-    """Genera el gráfico interactivo de Plotly para los marcadores exactos."""
     z_data = []
     text_data = []
     goles_rango = list(range(MATRIZ_MAX_GOLES + 1))
@@ -496,7 +627,6 @@ def crear_heatmap_plotly(matriz, local, visitante):
 
 
 def render_resultado(r, idx_partido):
-    """Dibuja la tarjeta ejecutiva completa para cada partido."""
     local = r["local"]
     visitante = r["visitante"]
     mercados = r["mercados"]
@@ -509,6 +639,8 @@ def render_resultado(r, idx_partido):
         f"Gana {visitante}": mercados["visitante"],
     }
     pick_top = max(opciones_1x2, key=opciones_1x2.get)
+    prob_top = opciones_1x2[pick_top]
+    momio_top = formatear_momio_justo(prob_top)
 
     with st.container(border=True):
         # 1. ENCABEZADO CON ESCUDOS Y XG ESPERADO
@@ -522,20 +654,20 @@ def render_resultado(r, idx_partido):
                 f"</h3>"
                 f"<p style='text-align:center; color:#7d8b99; font-size:0.88rem; margin-top:0;'>"
                 f"xG Proyectado: <b>{xg_l:.2f}</b> vs <b>{xg_v:.2f}</b> &nbsp;|&nbsp; "
-                f"Factor Localía: <b>x{r['factor_loc']}</b> &nbsp;|&nbsp; Ajuste: <b>Dixon-Coles</b></p>",
+                f"Factor Localía: <b>x{r['factor_loc']}</b> &nbsp;|&nbsp; Motor: <b>Dixon-Coles</b></p>",
                 unsafe_allow_html=True,
             )
         with c_esc_v:
             render_escudo(visitante, visitante)
 
-        # 2. BANNER DEL PICK PRINCIPAL
+        # 2. BANNER DEL PICK PRINCIPAL CON CUOTA JUSTA (FAIR ODD)
         st.markdown(
-            f'<div class="pick-banner">🏆 PICK SUGERIDO (1X2): <b>{pick_top}</b> '
-            f'&nbsp;·&nbsp; {opciones_1x2[pick_top]*100:.1f}% de probabilidad</div>',
+            f'<div class="pick-banner">🏆 PICK 1X2: <b>{pick_top}</b> ({prob_top*100:.1f}%) '
+            f'&nbsp;|&nbsp; 💡 Cuota Justa Mínima: <b>{momio_top}</b></div>',
             unsafe_allow_html=True,
         )
 
-        # 3. MERCADO 1X2 (MONEYLINE)
+        # 3. MERCADO 1X2 (MONEYLINE) + FAIR ODDS
         col1, col2, col3 = st.columns(3)
         etiquetas_1x2 = [
             (col1, f"👑 {local}" if pick_top == f"Gana {local}" else f"Gana {local}", mercados["local"]),
@@ -544,12 +676,51 @@ def render_resultado(r, idx_partido):
         ]
         for col, label, prob in etiquetas_1x2:
             with col:
-                st.metric(label, f"{prob*100:.1f}%")
+                st.metric(
+                    label,
+                    f"{prob*100:.1f}%",
+                    delta=f"Justa: {formatear_momio_justo(prob)}",
+                    delta_color="off"
+                )
                 st.progress(min(prob, 1.0))
 
         st.divider()
 
-        # 4. TOP 3 MARCADORES Y MERCADOS DE GOLES
+        # 4. MERCADOS ASIÁTICOS Y PROTECCIÓN DE BANKROLL (NUEVO)
+        st.markdown("**🛡️ Mercados de Protección (Empate No Acción, Doble Oportunidad y Hándicap)**")
+        a1, a2, a3, a4 = st.columns(4)
+        with a1:
+            st.metric(
+                f"🛡️ {local} DNB (Sin Empate)",
+                f"{mercados['dnb_local']*100:.1f}%",
+                delta=f"Justa: {formatear_momio_justo(mercados['dnb_local'])}",
+                delta_color="off"
+            )
+        with a2:
+            st.metric(
+                f"🛡️ {visitante} DNB (Sin Empate)",
+                f"{mercados['dnb_visit']*100:.1f}%",
+                delta=f"Justa: {formatear_momio_justo(mercados['dnb_visit'])}",
+                delta_color="off"
+            )
+        with a3:
+            # Mostrar la Doble Oportunidad del lado más fuerte
+            if mercados["doble_1x"] >= mercados["doble_x2"]:
+                lbl_dc, prob_dc = f"🔒 Doble Op: {local}/Empate", mercados["doble_1x"]
+            else:
+                lbl_dc, prob_dc = f"🔒 Doble Op: {visitante}/Empate", mercados["doble_x2"]
+            st.metric(lbl_dc, f"{prob_dc*100:.1f}%", delta=f"Justa: {formatear_momio_justo(prob_dc)}", delta_color="off")
+        with a4:
+            # Mostrar el Hándicap -1.5 del favorito
+            if mercados["hc_local_15"] >= mercados["hc_visit_15"]:
+                lbl_hc, prob_hc = f"⚡ {local} (-1.5 Goles)", mercados["hc_local_15"]
+            else:
+                lbl_hc, prob_hc = f"⚡ {visitante} (-1.5 Goles)", mercados["hc_visit_15"]
+            st.metric(lbl_hc, f"{prob_hc*100:.1f}%", delta=f"Justa: {formatear_momio_justo(prob_hc)}", delta_color="off")
+
+        st.divider()
+
+        # 5. TOP 3 MARCADORES, GOLES Y CÓRNERS
         col_izq, col_der = st.columns([5, 6])
 
         with col_izq:
@@ -571,17 +742,19 @@ def render_resultado(r, idx_partido):
                 st.metric(f"🚩 {visitante}", f"{r['xc_v']}")
 
             if r["prob_over_c"] >= r["prob_under_c"]:
-                pick_corners = f"🔥 OVER {LINEA_CORNERS} CÓRNERS ({r['prob_over_c']*100:.1f}% prob.)"
+                prob_c = r["prob_over_c"]
+                pick_corners = f"🔥 OVER {LINEA_CORNERS} ({prob_c*100:.1f}%) · Justa: {formatear_momio_justo(prob_c)}"
                 color_pick = "#00ff9d"
             else:
-                pick_corners = f"🧊 UNDER {LINEA_CORNERS} CÓRNERS ({r['prob_under_c']*100:.1f}% prob.)"
+                prob_c = r["prob_under_c"]
+                pick_corners = f"🧊 UNDER {LINEA_CORNERS} ({prob_c*100:.1f}%) · Justa: {formatear_momio_justo(prob_c)}"
                 color_pick = "#00c3ff"
 
             st.markdown(
                 f"""
                 <div style="text-align:center; padding:8px; margin-top:6px; 
                     border:1px dashed {color_pick}; color:{color_pick}; 
-                    border-radius:8px; font-weight:800; font-size:0.9rem; letter-spacing:1px;">
+                    border-radius:8px; font-weight:800; font-size:0.88rem; letter-spacing:0.5px;">
                     🎯 {pick_corners}
                 </div>
                 """,
@@ -593,22 +766,22 @@ def render_resultado(r, idx_partido):
             goles_totales = xg_l + xg_v
             g1, g2, g3 = st.columns(3)
             with g1:
-                st.metric("⚽ Goles Esp.", f"{goles_totales:.2f}")
+                st.metric("⚽ Goles Esp.", f"{goles_totales:.2f}", delta=f"Under 2.5: {mercados['under25']*100:.1f}%", delta_color="off")
             with g2:
-                st.metric("🤝 Ambos Anotan", f"{mercados['btts']*100:.1f}%")
+                st.metric("🤝 Ambos Anotan", f"{mercados['btts']*100:.1f}%", delta=f"Justa: {formatear_momio_justo(mercados['btts'])}", delta_color="off")
             with g3:
-                st.metric("🔥 Over 2.5", f"{mercados['over25']*100:.1f}%")
+                st.metric("🔥 Over 2.5", f"{mercados['over25']*100:.1f}%", delta=f"Justa: {formatear_momio_justo(mercados['over25'])}", delta_color="off")
 
             st.write("")
             g4, g5, g6 = st.columns(3)
             with g4:
-                st.metric("🧊 Under 3.5", f"{mercados['under35']*100:.1f}%")
+                st.metric("🧊 Under 3.5", f"{mercados['under35']*100:.1f}%", delta=f"Justa: {formatear_momio_justo(mercados['under35'])}", delta_color="off")
             with g5:
                 st.metric(f"🛡️ Cero {local}", f"{mercados['clean_sheet_local']*100:.1f}%")
             with g6:
                 st.metric(f"🛡️ Cero {visitante}", f"{mercados['clean_sheet_visitante']*100:.1f}%")
 
-        # 5. EXPANDERS PARA MATRIZ DE CALOR Y STATS BASE
+        # 6. EXPANDERS PARA MATRIZ DE CALOR Y STATS BASE
         with st.expander("📊 Ver Matriz de Calor (Plotly) y Desglose de Plantillas"):
             m_col1, m_col2 = st.columns([6, 4])
             with m_col1:
@@ -626,7 +799,7 @@ def render_resultado(r, idx_partido):
 # 5. INTERFAZ PRINCIPAL: PANEL MAESTRO DE JORNADA
 # ==============================================================
 st.markdown("<h2 class='main-title'>LIGA MX - ESCÁNER DE JORNADA</h2>", unsafe_allow_html=True)
-st.markdown("<p class='subtitle'>Motor Poisson + Corrección Dixon-Coles · Inteligencia Cuantitativa</p>", unsafe_allow_html=True)
+st.markdown("<p class='subtitle'>Motor Poisson + Dixon-Coles · Fair Odds (+EV) · Radar Cuantitativo</p>", unsafe_allow_html=True)
 
 with st.expander("⚙️ CONFIGURAR LOS 9 CRUCES DE LA JORNADA", expanded=True):
     with st.form("form_jornada"):
@@ -675,10 +848,15 @@ if escanear:
             resultados.append(analizar_partido(p["local"], p["visitante"], liga_gf_avg, liga_ga_avg))
 
     st.session_state["resultados_jornada"] = resultados
-    st.success("✅ ¡Simulación cuantitativa completada con ajuste Dixon-Coles para los 9 partidos!")
+    st.success("✅ ¡Simulación cuantitativa completada! Revisa el Radar Ejecutivo aquí abajo.")
 
 resultados_guardados = st.session_state.get("resultados_jornada")
 if resultados_guardados:
+    # Filtramos los partidos válidos para alimentar el Radar Ejecutivo
+    validos = [r for r in resultados_guardados if not r["error"]]
+    render_radar_jornada(validos)
+
+    st.markdown("### 📋 DESGLOSE DETALLADO PARTIDO POR PARTIDO")
     for idx_partido, r in enumerate(resultados_guardados):
         if r["error"]:
             st.error(f"⚠️ Error en el Partido {idx_partido + 1}: {r['local']} no puede jugar contra sí mismo.")
