@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 """
 ==============================================================
- TERMINAL SHARP: LIGA MX (CYBER-QUANT UI EDITION · V5.0)
+ TERMINAL SHARP: LIGA MX (CYBER-QUANT UI EDITION · V5.1)
  Dashboard web de predicción cuantitativa con Cartelera Grid:
- - Diccionario Oficial LOGOS_LIGA_MX (Wikimedia / ESPN CDN + Fallback)
+ - Logos Oficiales vía ESPN CDN en Alta Definición (PNG 500x500 sin bloqueos CORS)
  - Navegación SPA fluida mediante st.session_state.partido_activo
  - Vista A: Cartelera Interactiva en Cuadrícula (3 columnas estilo Flashscore)
  - Vista B: Análisis Profundo de Partido (Scoreboard 64px, 1X2, Asiáticos, Podio)
@@ -14,7 +14,6 @@
 
 import math
 import unicodedata
-from urllib.parse import quote
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
@@ -57,98 +56,60 @@ HORARIOS_JORNADA_DEFAULT = [
 ]
 
 # ==============================================================
-# 1. DICCIONARIO DE LOGOS OFICIALES (LIGA MX) Y FALLBACKS
+# 1. LOGOS OFICIALES VÍA CDN DE ESPN (PNG ALTA DEFINICIÓN)
 # ==============================================================
-LOGOS_LIGA_MX = {
-    "América": "https://commons.wikimedia.org/wiki/Special:FilePath/Club%20Am%C3%A9rica%20flag.svg",
-    "Atlas": "https://commons.wikimedia.org/wiki/Special:FilePath/F%C3%BAtbol%20Club%20Atlas.svg",
-    "Atlético de San Luis": "https://commons.wikimedia.org/wiki/Special:FilePath/Atl%C3%A9tico%20San%20Luis%20Logo%20Proper.svg",
-    "Cruz Azul": "https://commons.wikimedia.org/wiki/Special:FilePath/Club%20de%20Futbol%20Cruz%20Azul.svg",
-    "FC Juárez": "https://commons.wikimedia.org/wiki/Special:FilePath/FC%20Ju%C3%A1rez%20logo.svg",
-    "Guadalajara (Chivas)": "https://commons.wikimedia.org/wiki/Special:FilePath/Logo%20del%20Club%20Deportivo%20Guadalajara%20(M%C3%A9xico).svg",
-    "León": "https://commons.wikimedia.org/wiki/Special:FilePath/Leon.svg",
-    "Mazatlán FC": "https://commons.wikimedia.org/wiki/Special:FilePath/Mazatlan%20FC%20Flag.png",
-    "Monterrey": "https://commons.wikimedia.org/wiki/Special:FilePath/Club%20de%20F%C3%BAtbol%20Monterrey%202019%20Logo.svg",
-    "Necaxa": "https://commons.wikimedia.org/wiki/Special:FilePath/Club%20Necaxa%20Logo.svg",
-    "Pachuca": "https://commons.wikimedia.org/wiki/Special:FilePath/Escudo%20del%20Club%20de%20F%C3%BAtbol%20Pachuca.png",
-    "Puebla": "https://commons.wikimedia.org/wiki/Special:FilePath/Club%20Puebla%20logo.svg",
-    "Pumas UNAM": "https://commons.wikimedia.org/wiki/Special:FilePath/Logo%20Pumas%20de%20la%20UNAM.jpg",
-    "Querétaro": "https://commons.wikimedia.org/wiki/Special:FilePath/Gallosblancos.jpg",
-    "Santos Laguna": "https://commons.wikimedia.org/wiki/Special:FilePath/Escudo%20del%20Club%20Santos%20Laguna.png",
-    "Tigres UANL": "https://commons.wikimedia.org/wiki/Special:FilePath/Escudo%20del%20Club%20de%20F%C3%BAtbol%20Tigres%20UANL.svg",
-    "Toluca": "https://commons.wikimedia.org/wiki/Special:FilePath/Club%20Toluca%20Logo.svg",
-    "Tijuana (Xolos)": "https://commons.wikimedia.org/wiki/Special:FilePath/Club-Tijuana.jpg",
-    # Soporte adicional en caso de que el CSV incluya a Atlante
-    "Atlante": "https://commons.wikimedia.org/wiki/Special:FilePath/Atlante%20FC.png",
+# Mapeo oficial de IDs de ESPN para la Liga MX (PNG en alta definición)
+ESPN_LIGA_MX_IDS = {
+    "América": "227",
+    "Atlas": "229",
+    "Atlético de San Luis": "17941",
+    "Cruz Azul": "232",
+    "FC Juárez": "17851",
+    "Guadalajara": "235",
+    "León": "238",
+    "Mazatlán FC": "20448",
+    "Monterrey": "241",
+    "Necaxa": "243",
+    "Pachuca": "244",
+    "Puebla": "245",
+    "Pumas UNAM": "247",
+    "Querétaro": "248",
+    "Santos Laguna": "251",
+    "Tigres UANL": "254",
+    "Toluca": "255",
+    "Tijuana": "11145",
+    "Atlante": "228",
 }
 
-ALIAS_EQUIPOS = {
-    "america": "América",
-    "club america": "América",
-    "aguilas": "América",
-    "atlas": "Atlas",
-    "san luis": "Atlético de San Luis",
-    "atletico san luis": "Atlético de San Luis",
-    "atletico de san luis": "Atlético de San Luis",
-    "cruz azul": "Cruz Azul",
-    "maquina": "Cruz Azul",
-    "juarez": "FC Juárez",
-    "fc juarez": "FC Juárez",
-    "bravos": "FC Juárez",
-    "guadalajara": "Guadalajara (Chivas)",
-    "chivas": "Guadalajara (Chivas)",
-    "guadalajara (chivas)": "Guadalajara (Chivas)",
-    "leon": "León",
-    "club leon": "León",
-    "mazatlan": "Mazatlán FC",
-    "mazatlan fc": "Mazatlán FC",
-    "monterrey": "Monterrey",
-    "rayados": "Monterrey",
-    "necaxa": "Necaxa",
-    "pachuca": "Pachuca",
-    "tuzos": "Pachuca",
-    "puebla": "Puebla",
-    "club puebla": "Puebla",
-    "pumas": "Pumas UNAM",
-    "pumas unam": "Pumas UNAM",
-    "unam": "Pumas UNAM",
-    "queretaro": "Querétaro",
-    "gallos": "Querétaro",
-    "gallos blancos": "Querétaro",
-    "santos": "Santos Laguna",
-    "santos laguna": "Santos Laguna",
-    "tigres": "Tigres UANL",
-    "tigres uanl": "Tigres UANL",
-    "toluca": "Toluca",
-    "diablos": "Toluca",
-    "tijuana": "Tijuana (Xolos)",
-    "xolos": "Tijuana (Xolos)",
-    "club tijuana": "Tijuana (Xolos)",
-    "tijuana (xolos)": "Tijuana (Xolos)",
-    "atlante": "Atlante",
-}
 
-FALLBACK_BADGE = {
-    "América": ("AME", "#FFCC00", "#0b1f4d"),
-    "Atlas": ("ATL", "#d91c24", "#111111"),
-    "Atlético de San Luis": ("ASL", "#c8102e", "#ffffff"),
-    "Cruz Azul": ("CAZ", "#0033a0", "#ffffff"),
-    "FC Juárez": ("JUA", "#009639", "#ffffff"),
-    "Guadalajara (Chivas)": ("GDL", "#e30613", "#ffffff"),
-    "León": ("LEO", "#0a8a3f", "#ffffff"),
-    "Mazatlán FC": ("MAZ", "#582c83", "#ffffff"),
-    "Monterrey": ("MTY", "#0a2240", "#ffffff"),
-    "Necaxa": ("NEC", "#e30613", "#ffffff"),
-    "Pachuca": ("PAC", "#002855", "#ffffff"),
-    "Puebla": ("PUE", "#1c3f94", "#ffffff"),
-    "Pumas UNAM": ("PUM", "#00205b", "#cba052"),
-    "Querétaro": ("QRO", "#0033a0", "#ffffff"),
-    "Santos Laguna": ("SAN", "#007a33", "#ffffff"),
-    "Tigres UANL": ("TIG", "#fbaa19", "#002d72"),
-    "Toluca": ("TOL", "#c8102e", "#ffffff"),
-    "Tijuana (Xolos)": ("TIJ", "#e2231a", "#111111"),
-    "Atlante": ("ATN", "#0033a0", "#ffcc00"),
-}
+def resolver_nombre_canonico(nombre):
+    nombre_limpio = str(nombre).strip()
+    mapeo = {
+        "Chivas": "Guadalajara",
+        "Guadalajara (Chivas)": "Guadalajara",
+        "San Luis": "Atlético de San Luis",
+        "Atlético San Luis": "Atlético de San Luis",
+        "Pumas": "Pumas UNAM",
+        "Xolos": "Tijuana",
+        "Tijuana (Xolos)": "Tijuana",
+        "Juárez": "FC Juárez",
+        "Tigres": "Tigres UANL",
+        "Mazatlán": "Mazatlán FC",
+        "Santos": "Santos Laguna",
+    }
+    return mapeo.get(nombre_limpio, nombre_limpio)
+
+
+def escudo_html(nombre_equipo, size=32):
+    nombre = resolver_nombre_canonico(nombre_equipo)
+    id_espn = ESPN_LIGA_MX_IDS.get(nombre)
+    if id_espn:
+        url = f"https://a.espncdn.com/i/teamlogos/soccer/500/{id_espn}.png"
+    else:
+        url = "https://a.espncdn.com/i/teamlogos/soccer/500/default-team-logo.png"
+
+    return f'<img src="{url}" width="{size}" height="{size}" style="object-fit: contain; vertical-align: middle; margin-right: 8px;">'
+
 
 EMOJIS_LIGA = {
     "América": "🦅", "Guadalajara": "🐐", "Guadalajara (Chivas)": "🐐",
@@ -172,87 +133,7 @@ def _normalizar(texto):
     )
 
 
-_LOGOS_NORMALIZADOS = {_normalizar(k): v for k, v in LOGOS_LIGA_MX.items()}
-_FALLBACK_NORMALIZADO = {_normalizar(k): v for k, v in FALLBACK_BADGE.items()}
 _LOCALIA_NORMALIZADA = {_normalizar(k): v for k, v in FACTOR_LOCALIA_EQUIPOS.items()}
-
-
-def resolver_nombre_canonico(equipo):
-    """
-    Función auxiliar de resolución de nombres y desempate semántico.
-    Convierte variantes del CSV ('San Luis', 'Guadalajara', 'Pumas', 'Mazatlán')
-    a la clave oficial de LOGOS_LIGA_MX.
-    """
-    norm = _normalizar(equipo)
-    if norm in ALIAS_EQUIPOS:
-        return ALIAS_EQUIPOS[norm]
-    for k_canon in LOGOS_LIGA_MX:
-        if _normalizar(k_canon) == norm:
-            return k_canon
-    # Búsqueda parcial por subcadena en caso de nombres compuestos no previstos
-    for alias_key, canon_val in ALIAS_EQUIPOS.items():
-        if alias_key in norm or norm in alias_key:
-            return canon_val
-    return str(equipo).strip()
-
-
-def obtener_logo_url(equipo, width_px=128):
-    """Devuelve la URL oficial en alta resolución del club o None si requiere badge."""
-    canon = resolver_nombre_canonico(equipo)
-    base_url = LOGOS_LIGA_MX.get(canon) or _LOGOS_NORMALIZADOS.get(_normalizar(canon))
-    if not base_url:
-        return None
-    if "commons.wikimedia.org" in base_url and "width=" not in base_url:
-        return f"{base_url}?width={width_px}"
-    return base_url
-
-
-def obtener_iniciales_y_colores(equipo):
-    """Devuelve (iniciales, color_fondo, color_texto) para el fallback visual."""
-    canon = resolver_nombre_canonico(equipo)
-    if canon in FALLBACK_BADGE:
-        return FALLBACK_BADGE[canon]
-    if _normalizar(canon) in _FALLBACK_NORMALIZADO:
-        return _FALLBACK_NORMALIZADO[_normalizar(canon)]
-    limpio = "".join(c for c in str(equipo).upper() if c.isalpha())
-    return (limpio[:3] or "LMX", "#1e293b", "#00ff9d")
-
-
-def escudo_html(equipo, size=ESCUDO_HEADER_PX):
-    """
-    Genera el HTML del escudo oficial con fallback automático en caso de error de red
-    o empate/ausencia de nombre.
-    """
-    url = obtener_logo_url(equipo, width_px=max(size * 2, 128))
-    iniciales, bg_col, txt_col = obtener_iniciales_y_colores(equipo)
-    font_sz = max(10, int(size * 0.34))
-
-    fallback_div = (
-        f"<div style='width:{size}px;height:{size}px;min-width:{size}px;"
-        f"border-radius:50%;background:{bg_col};color:{txt_col};"
-        f"display:inline-flex;align-items:center;justify-content:center;"
-        f"font-family:JetBrains Mono,monospace;font-weight:800;font-size:{font_sz}px;"
-        f"border:1.5px solid rgba(255,255,255,0.28);box-shadow:0 3px 10px rgba(0,0,0,0.55);'>"
-        f"{iniciales}</div>"
-    )
-
-    if not url:
-        return fallback_div
-
-    return (
-        f'<span style="display:inline-flex;align-items:center;justify-content:center;'
-        f'width:{size}px;height:{size}px;min-width:{size}px;">'
-        f'<img src="{url}" alt="{equipo}" '
-        f'style="width:{size}px;height:{size}px;object-fit:contain;'
-        f'filter:drop-shadow(0 3px 8px rgba(0,0,0,0.65));" '
-        f'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'inline-flex\';">'
-        f'<span style="display:none;width:{size}px;height:{size}px;min-width:{size}px;'
-        f'border-radius:50%;background:{bg_col};color:{txt_col};'
-        f'align-items:center;justify-content:center;font-family:\'JetBrains Mono\',monospace;'
-        f'font-weight:800;font-size:{font_sz}px;border:1.5px solid rgba(255,255,255,0.28);'
-        f'box-shadow:0 3px 10px rgba(0,0,0,0.55);">{iniciales}</span>'
-        f'</span>'
-    )
 
 
 def generar_pastillas_forma(valor_forma, seed_offset=0):
@@ -265,7 +146,6 @@ def generar_pastillas_forma(valor_forma, seed_offset=0):
     except (TypeError, ValueError):
         f_val = 0.50
 
-    # Si el CSV trae Forma en escala 0-100 o 0-10, la normalizamos a 0.0-1.0
     if f_val > 10.0:
         f_val = f_val / 100.0
     elif f_val > 1.0:
@@ -286,14 +166,14 @@ def generar_pastillas_forma(valor_forma, seed_offset=0):
         secuencia = ["L", "L", "D", "L", "L"]
 
     colores = {
-        "W": ("#10b981", "#03261b", "G"),
-        "D": ("#64748b", "#f8fafc", "E"),
-        "L": ("#ef4444", "#ffffff", "P"),
+        "W": ("#10b981", "#03261b"),
+        "D": ("#64748b", "#f8fafc"),
+        "L": ("#ef4444", "#ffffff"),
     }
 
     pills_html = []
     for res in secuencia:
-        bg, fg, _ = colores[res]
+        bg, fg = colores[res]
         pills_html.append(
             f'<span class="form-pill" style="background:{bg};color:{fg};">{res}</span>'
         )
@@ -445,7 +325,6 @@ st.markdown("""
     .grid-team-info {
         display: flex;
         align-items: center;
-        gap: 10px;
         min-width: 0;
     }
     .grid-team-name {
@@ -622,7 +501,7 @@ st.markdown("""
     .sb-team {
         display: flex;
         align-items: center;
-        gap: 18px;
+        gap: 14px;
         width: 38%;
     }
     .sb-team.right {
@@ -781,13 +660,13 @@ DATOS_DEFAULT_LIGA_MX = [
     {"Equipo": "Toluca", "xG_favor": 1.79, "xGA_contra": 1.15, "Forma": 0.76, "Jerarquia": 8.6, "Corners_Favor": 5.5, "Corners_Contra": 4.5},
     {"Equipo": "Tigres UANL", "xG_favor": 1.72, "xGA_contra": 1.05, "Forma": 0.72, "Jerarquia": 9.2, "Corners_Favor": 6.1, "Corners_Contra": 4.2},
     {"Equipo": "Monterrey", "xG_favor": 1.70, "xGA_contra": 1.08, "Forma": 0.70, "Jerarquia": 9.1, "Corners_Favor": 5.7, "Corners_Contra": 4.3},
-    {"Equipo": "Guadalajara (Chivas)", "xG_favor": 1.56, "xGA_contra": 1.04, "Forma": 0.74, "Jerarquia": 8.7, "Corners_Favor": 5.4, "Corners_Contra": 4.4},
+    {"Equipo": "Guadalajara", "xG_favor": 1.56, "xGA_contra": 1.04, "Forma": 0.74, "Jerarquia": 8.7, "Corners_Favor": 5.4, "Corners_Contra": 4.4},
     {"Equipo": "Pumas UNAM", "xG_favor": 1.52, "xGA_contra": 1.18, "Forma": 0.62, "Jerarquia": 8.2, "Corners_Favor": 5.2, "Corners_Contra": 4.7},
     {"Equipo": "Pachuca", "xG_favor": 1.58, "xGA_contra": 1.26, "Forma": 0.60, "Jerarquia": 8.3, "Corners_Favor": 5.6, "Corners_Contra": 4.6},
     {"Equipo": "León", "xG_favor": 1.49, "xGA_contra": 1.28, "Forma": 0.64, "Jerarquia": 7.9, "Corners_Favor": 5.1, "Corners_Contra": 4.8},
     {"Equipo": "Atlético de San Luis", "xG_favor": 1.46, "xGA_contra": 1.32, "Forma": 0.58, "Jerarquia": 7.2, "Corners_Favor": 4.8, "Corners_Contra": 5.0},
     {"Equipo": "Atlas", "xG_favor": 1.28, "xGA_contra": 1.24, "Forma": 0.55, "Jerarquia": 7.4, "Corners_Favor": 4.6, "Corners_Contra": 4.9},
-    {"Equipo": "Tijuana (Xolos)", "xG_favor": 1.42, "xGA_contra": 1.44, "Forma": 0.56, "Jerarquia": 7.1, "Corners_Favor": 4.9, "Corners_Contra": 5.2},
+    {"Equipo": "Tijuana", "xG_favor": 1.42, "xGA_contra": 1.44, "Forma": 0.56, "Jerarquia": 7.1, "Corners_Favor": 4.9, "Corners_Contra": 5.2},
     {"Equipo": "Necaxa", "xG_favor": 1.34, "xGA_contra": 1.38, "Forma": 0.50, "Jerarquia": 6.9, "Corners_Favor": 4.5, "Corners_Contra": 5.3},
     {"Equipo": "Santos Laguna", "xG_favor": 1.31, "xGA_contra": 1.52, "Forma": 0.52, "Jerarquia": 7.3, "Corners_Favor": 4.7, "Corners_Contra": 5.4},
     {"Equipo": "Puebla", "xG_favor": 1.22, "xGA_contra": 1.58, "Forma": 0.42, "Jerarquia": 6.5, "Corners_Favor": 4.4, "Corners_Contra": 5.6},
@@ -1007,7 +886,6 @@ def analizar_partido(eq_local, eq_visitante, liga_gf_avg, liga_ga_avg, idx_parti
     top3 = top_marcadores(matriz, top_n=3)
     xc_l, xc_v, total_corners, prob_over_c, prob_under_c = calcular_xcorners(row_local, row_visit, xg_l, xg_v)
 
-    # Marcador proyectado coherente con el xG esperado y la cima de probabilidad Poisson
     gl_top, gv_top = top3[0][0]
     prob_marcador_top = top3[0][1]
 
@@ -1173,6 +1051,7 @@ def crear_heatmap_plotly(matriz, local, visitante):
 def render_vista_cartelera_grid(resultados):
     """
     VISTA A: CARTELERA EN CUADRÍCULA (GRID 3 COLUMNAS ESTILO FLASHSCORE / SOFASCORE)
+    Usa escudo_html(equipo, size=32) con el CDN oficial de ESPN.
     """
     st.markdown(
         "<div class='sec-header'>🏟️ CARTELERA INTERACTIVA DE JORNADA · SELECCIONA UN ENCUENTRO PARA ANÁLISIS PROFUNDO</div>",
@@ -1197,8 +1076,8 @@ def render_vista_cartelera_grid(resultados):
                     local = r["local"]
                     visitante = r["visitante"]
                     mercados = r["mercados"]
-                    logo_local_32 = escudo_html(local, size=ESCUDO_GRID_PX)
-                    logo_visit_32 = escudo_html(visitante, size=ESCUDO_GRID_PX)
+                    logo_local_32 = escudo_html(local, size=32)
+                    logo_visit_32 = escudo_html(visitante, size=32)
 
                     pills_local = generar_pastillas_forma(r["forma_l"], seed_offset=idx_global)
                     pills_visit = generar_pastillas_forma(r["forma_v"], seed_offset=idx_global + 1)
@@ -1258,8 +1137,8 @@ def render_vista_cartelera_grid(resultados):
 def render_vista_detalle_partido(r, idx_partido):
     """
     VISTA B: PANTALLA DETALLADA DE PARTIDO SELECCIONADO
+    Usa escudo_html(equipo, size=64) en el Scoreboard TV Header.
     """
-    # Botón prominente de retorno a la Cartelera Principal
     col_back, col_info = st.columns([3.5, 6.5])
     with col_back:
         if st.button("← Volver a la Cartelera de Jornada", key="btn_volver_cartelera", use_container_width=True):
@@ -1295,12 +1174,12 @@ def render_vista_detalle_partido(r, idx_partido):
     momio_top = formatear_momio_justo(prob_top)
 
     with st.container(border=True):
-        # 1. SCOREBOARD TV HEADER CON LOGOS OFICIALES EN GRANDE (64px)
+        # 1. SCOREBOARD TV HEADER CON LOGOS OFICIALES EN GRANDE (size=64)
         st.markdown(
             f"""
             <div class="scoreboard">
                 <div class="sb-team">
-                    {escudo_html(local, size=ESCUDO_HEADER_PX)}
+                    {escudo_html(local, size=64)}
                     <div>
                         <div class="sb-name">{EMOJIS_LIGA.get(local, '⚽')} {local}</div>
                         <div class="sb-tag">LOCAL · xG Proy: <b style="color:#00ff9d;">{xg_l:.2f}</b> · Factor Loc: x{r['factor_loc']}</div>
@@ -1320,7 +1199,7 @@ def render_vista_detalle_partido(r, idx_partido):
                         <div class="sb-tag">VISITA · xG Proy: <b style="color:#ffd700;">{xg_v:.2f}</b> · xG Total: {xg_l + xg_v:.2f}</div>
                         <div style="margin-top:6px;display:flex;justify-content:flex-end;">{generar_pastillas_forma(r['forma_v'], seed_offset=idx_partido + 1)}</div>
                     </div>
-                    {escudo_html(visitante, size=ESCUDO_HEADER_PX)}
+                    {escudo_html(visitante, size=64)}
                 </div>
             </div>
             """,
@@ -1522,7 +1401,7 @@ if "resultados_jornada" not in st.session_state:
 # HERO BANNER SUPERIOR
 st.markdown("""
 <div class="hero-box">
-    <div class="status-pill"><span class="pulse-dot"></span> ENGINE ONLINE · DIXON-COLES + POISSON V5.0 · GRID EDITION</div>
+    <div class="status-pill"><span class="pulse-dot"></span> ENGINE ONLINE · DIXON-COLES + POISSON V5.1 · ESPN CDN EDITION</div>
     <h1 class="main-title">TERMINAL SHARP · LIGA MX</h1>
     <p class="subtitle">Cartelera Interactiva · Momios Justos (+EV) · Mercados Asiáticos</p>
 </div>
