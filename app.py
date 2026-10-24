@@ -2,194 +2,80 @@
 # -*- coding: utf-8 -*-
 """
 ==============================================================
- TERMINAL SHARP: LIGA MX (CYBER-QUANT UI EDITION · V5.1)
- Dashboard web de predicción cuantitativa con Cartelera Grid:
- - Logos Oficiales vía ESPN CDN en Alta Definición (PNG 500x500 sin bloqueos CORS)
- - Navegación SPA fluida mediante st.session_state.partido_activo
- - Vista A: Cartelera Interactiva en Cuadrícula (3 columnas estilo Flashscore)
- - Vista B: Análisis Profundo de Partido (Scoreboard 64px, 1X2, Asiáticos, Podio)
- - Motor Poisson + Corrección Dixon-Coles + Córners por Dominio
+ MÓDULO 3: app_ligamx.py
+ Orquestador Principal de Streamlit · TERMINAL SHARP: LIGA MX
+ - Sin decoradores @st.cache_data que congelen los datos
+ - Gestión reactiva en st.session_state.df_ligamx
+ - Carga por defecto de 'ligamx_stats_actualizado.csv'
+ - Sidebar con st.file_uploader en caliente + botón de refresco
+ - Sincronización automática de jornada con sync_espn_ligamx.py
+ - Vista A: Radar Ejecutivo + Cartelera en Cuadrícula (3 columnas)
+ - Vista B: Expediente Cuantitativo Completo del Partido
 ==============================================================
 """
 
-import math
-import unicodedata
+import os
+import hashlib
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 
-# ==============================================================
-# PARÁMETROS GLOBALES DEL MODELO
-# ==============================================================
-CSV_PATH = "ligamx_stats_completo.csv"
-HOME_ADVANTAGE_DEFAULT = 1.18  # Localía base si el equipo no está en el diccionario
-DIXON_COLES_RHO = -0.13        # Correlación negativa para inflar empates bajos (0-0, 1-1)
-LINEA_CORNERS = 9.5            # Línea asiática estándar para Over/Under de córners
-MAX_GOLES_CALCULO = 10         # Rango de la matriz para mercados (precisión 100%)
-MAX_GOLES_DISPLAY = 5          # Rango a mostrar en "marcadores exactos" (0-0 a 5-5)
-MATRIZ_MAX_GOLES = 6           # Rango exacto de la matriz visual (0 a 6 goles)
-ESCUDO_GRID_PX = 32            # Tamaño de logo en Cartelera (Vista A)
-ESCUDO_HEADER_PX = 64          # Tamaño de logo en Scoreboard TV (Vista B)
-NUM_PARTIDOS = 9               # Total de partidos por jornada
-
-FACTOR_LOCALIA_EQUIPOS = {
-    "Toluca": 1.26, "Pumas": 1.24, "Pumas UNAM": 1.24, "Pachuca": 1.24,
-    "América": 1.23, "Cruz Azul": 1.22, "Tigres": 1.23, "Tigres UANL": 1.23,
-    "Monterrey": 1.22, "Guadalajara": 1.19, "Guadalajara (Chivas)": 1.19,
-    "León": 1.20, "Santos": 1.18, "Santos Laguna": 1.18, "Atlas": 1.16,
-    "San Luis": 1.17, "Atlético de San Luis": 1.17, "Necaxa": 1.16,
-    "Tijuana": 1.21, "Tijuana (Xolos)": 1.21, "Puebla": 1.16,
-    "Querétaro": 1.14, "Juárez": 1.13, "FC Juárez": 1.13,
-    "Mazatlán": 1.12, "Mazatlán FC": 1.12, "Atlante": 1.18,
-}
-
-HORARIOS_JORNADA_DEFAULT = [
-    "VIE · 19:00 HRS",
-    "VIE · 21:05 HRS",
-    "SÁB · 17:00 HRS",
-    "SÁB · 19:00 HRS",
-    "SÁB · 19:05 HRS",
-    "SÁB · 21:10 HRS",
-    "DOM · 12:00 HRS",
-    "DOM · 18:00 HRS",
-    "DOM · 20:05 HRS",
-]
+from sync_espn_ligamx import (
+    ESPN_LIGA_MX_IDS,
+    EMOJIS_LIGA_MX,
+    obtener_calendario_ligamx,
+    escudo_ligamx_html,
+    normalizar_equipo_para_df,
+)
+from engine_ligamx import (
+    LINEA_CORNERS_DEFAULT,
+    MATRIZ_MAX_GOLES,
+    calcular_probabilidades_partido,
+    formatear_momio_justo,
+)
 
 # ==============================================================
-# 1. LOGOS OFICIALES VÍA CDN DE ESPN (PNG ALTA DEFINICIÓN)
-# ==============================================================
-# Mapeo oficial de IDs de ESPN para la Liga MX (PNG en alta definición)
-ESPN_LIGA_MX_IDS = {
-    "América": "227",
-    "Atlas": "216",
-    "Atlético de San Luis": "15720",
-    "Cruz Azul": "218",
-    "FC Juárez": "17851",
-    "Guadalajara": "219",
-    "León": "228",
-    "Mazatlán FC": "20448",
-    "Monterrey": "220",
-    "Necaxa": "229",
-    "Pachuca": "234",
-    "Puebla": "231",
-    "Pumas UNAM": "233",
-    "Querétaro": "222",
-    "Santos Laguna": "225",
-    "Tigres UANL": "232",
-    "Toluca": "223",
-    "Tijuana": "10125",
-    "Atlante": "226",
-}
-
-
-def resolver_nombre_canonico(nombre):
-    nombre_limpio = str(nombre).strip()
-    mapeo = {
-        "Chivas": "Guadalajara",
-        "Guadalajara (Chivas)": "Guadalajara",
-        "San Luis": "Atlético de San Luis",
-        "Atlético San Luis": "Atlético de San Luis",
-        "Pumas": "Pumas UNAM",
-        "Xolos": "Tijuana",
-        "Tijuana (Xolos)": "Tijuana",
-        "Juárez": "FC Juárez",
-        "Tigres": "Tigres UANL",
-        "Mazatlán": "Mazatlán FC",
-        "Santos": "Santos Laguna",
-    }
-    return mapeo.get(nombre_limpio, nombre_limpio)
-
-
-def escudo_html(nombre_equipo, size=32):
-    nombre = resolver_nombre_canonico(nombre_equipo)
-    id_espn = ESPN_LIGA_MX_IDS.get(nombre)
-    if id_espn:
-        url = f"https://a.espncdn.com/i/teamlogos/soccer/500/{id_espn}.png"
-    else:
-        url = "https://a.espncdn.com/i/teamlogos/soccer/500/default-team-logo.png"
-
-    return f'<img src="{url}" width="{size}" height="{size}" style="object-fit: contain; vertical-align: middle; margin-right: 8px;">'
-
-
-EMOJIS_LIGA = {
-    "América": "🦅", "Guadalajara": "🐐", "Guadalajara (Chivas)": "🐐",
-    "Cruz Azul": "🚂", "Pumas": "🐾", "Pumas UNAM": "🐾",
-    "Tigres": "🐯", "Tigres UANL": "🐯", "Monterrey": "⛰️",
-    "Toluca": "👿", "Pachuca": "🐹", "León": "🦁",
-    "Santos": "😇", "Santos Laguna": "😇", "Atlas": "🦊",
-    "Necaxa": "⚡", "Tijuana": "🐕", "Tijuana (Xolos)": "🐕",
-    "Puebla": "🎽", "Juárez": "🐎", "FC Juárez": "🐎",
-    "Mazatlán": "⚓", "Mazatlán FC": "⚓", "Querétaro": "🐓",
-    "San Luis": "⛪", "Atlético de San Luis": "⛪", "Atlante": "🦈",
-}
-
-
-def _normalizar(texto):
-    """Elimina acentos, convierte a minúsculas y limpia espacios."""
-    texto = str(texto).strip().lower()
-    return "".join(
-        c for c in unicodedata.normalize("NFD", texto)
-        if unicodedata.category(c) != "Mn"
-    )
-
-
-_LOCALIA_NORMALIZADA = {_normalizar(k): v for k, v in FACTOR_LOCALIA_EQUIPOS.items()}
-
-
-def generar_pastillas_forma(valor_forma, seed_offset=0):
-    """
-    Convierte el índice cuantitativo de Forma (0.0 a 1.0) en 5 pastillas visuales
-    de últimos resultados (W / D / L) estilo Flashscore/SofaScore.
-    """
-    try:
-        f_val = float(valor_forma)
-    except (TypeError, ValueError):
-        f_val = 0.50
-
-    if f_val > 10.0:
-        f_val = f_val / 100.0
-    elif f_val > 1.0:
-        f_val = f_val / 10.0
-    f_val = max(0.0, min(1.0, f_val))
-
-    if f_val >= 0.82:
-        secuencia = ["W", "W", "W", "D", "W"]
-    elif f_val >= 0.68:
-        secuencia = ["W", "D", "W", "W", "L"] if seed_offset % 2 == 0 else ["W", "W", "D", "L", "W"]
-    elif f_val >= 0.54:
-        secuencia = ["W", "D", "L", "W", "D"] if seed_offset % 2 == 0 else ["D", "W", "W", "L", "D"]
-    elif f_val >= 0.42:
-        secuencia = ["D", "L", "W", "D", "L"] if seed_offset % 2 == 0 else ["L", "W", "D", "L", "D"]
-    elif f_val >= 0.28:
-        secuencia = ["L", "D", "L", "W", "L"]
-    else:
-        secuencia = ["L", "L", "D", "L", "L"]
-
-    colores = {
-        "W": ("#10b981", "#03261b"),
-        "D": ("#64748b", "#f8fafc"),
-        "L": ("#ef4444", "#ffffff"),
-    }
-
-    pills_html = []
-    for res in secuencia:
-        bg, fg = colores[res]
-        pills_html.append(
-            f'<span class="form-pill" style="background:{bg};color:{fg};">{res}</span>'
-        )
-    return "".join(pills_html)
-
-
-# ==============================================================
-# 2. ESTÉTICA "CYBER-QUANT SPORTSBOOK TERMINAL" (CSS INYECTADO)
+# 1. CONFIGURACIÓN DE PÁGINA Y CONSTANTES
 # ==============================================================
 st.set_page_config(
     page_title="Terminal Sharp · Liga MX",
     page_icon="⚽",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
+CSV_DEFAULT_PATH = "ligamx_stats_actualizado.csv"
+CSV_LEGACY_PATH = "ligamx_stats_completo.csv"
+COLUMNAS_REQUERIDAS = {
+    "Equipo", "xG_favor", "xGA_contra", "Forma", "Jerarquia",
+    "Corners_Favor", "Corners_Contra",
+}
+
+DATOS_BASE_LIGA_MX = [
+    {"Equipo": "América", "xG_favor": 1.88, "xGA_contra": 1.02, "Forma": 0.82, "Jerarquia": 9.5, "Corners_Favor": 5.8, "Corners_Contra": 4.1},
+    {"Equipo": "Cruz Azul", "xG_favor": 1.82, "xGA_contra": 0.98, "Forma": 0.80, "Jerarquia": 9.0, "Corners_Favor": 5.9, "Corners_Contra": 3.9},
+    {"Equipo": "Toluca", "xG_favor": 1.79, "xGA_contra": 1.15, "Forma": 0.76, "Jerarquia": 8.6, "Corners_Favor": 5.5, "Corners_Contra": 4.5},
+    {"Equipo": "Tigres UANL", "xG_favor": 1.72, "xGA_contra": 1.05, "Forma": 0.72, "Jerarquia": 9.2, "Corners_Favor": 6.1, "Corners_Contra": 4.2},
+    {"Equipo": "Monterrey", "xG_favor": 1.70, "xGA_contra": 1.08, "Forma": 0.70, "Jerarquia": 9.1, "Corners_Favor": 5.7, "Corners_Contra": 4.3},
+    {"Equipo": "Guadalajara", "xG_favor": 1.56, "xGA_contra": 1.04, "Forma": 0.74, "Jerarquia": 8.7, "Corners_Favor": 5.4, "Corners_Contra": 4.4},
+    {"Equipo": "Pumas UNAM", "xG_favor": 1.52, "xGA_contra": 1.18, "Forma": 0.62, "Jerarquia": 8.2, "Corners_Favor": 5.2, "Corners_Contra": 4.7},
+    {"Equipo": "Pachuca", "xG_favor": 1.58, "xGA_contra": 1.26, "Forma": 0.60, "Jerarquia": 8.3, "Corners_Favor": 5.6, "Corners_Contra": 4.6},
+    {"Equipo": "León", "xG_favor": 1.49, "xGA_contra": 1.28, "Forma": 0.64, "Jerarquia": 7.9, "Corners_Favor": 5.1, "Corners_Contra": 4.8},
+    {"Equipo": "Atlético de San Luis", "xG_favor": 1.46, "xGA_contra": 1.32, "Forma": 0.58, "Jerarquia": 7.2, "Corners_Favor": 4.8, "Corners_Contra": 5.0},
+    {"Equipo": "Atlas", "xG_favor": 1.28, "xGA_contra": 1.24, "Forma": 0.55, "Jerarquia": 7.4, "Corners_Favor": 4.6, "Corners_Contra": 4.9},
+    {"Equipo": "Tijuana", "xG_favor": 1.42, "xGA_contra": 1.44, "Forma": 0.56, "Jerarquia": 7.1, "Corners_Favor": 4.9, "Corners_Contra": 5.2},
+    {"Equipo": "Necaxa", "xG_favor": 1.34, "xGA_contra": 1.38, "Forma": 0.50, "Jerarquia": 6.9, "Corners_Favor": 4.5, "Corners_Contra": 5.3},
+    {"Equipo": "Santos Laguna", "xG_favor": 1.31, "xGA_contra": 1.52, "Forma": 0.52, "Jerarquia": 7.3, "Corners_Favor": 4.7, "Corners_Contra": 5.4},
+    {"Equipo": "Puebla", "xG_favor": 1.22, "xGA_contra": 1.58, "Forma": 0.42, "Jerarquia": 6.5, "Corners_Favor": 4.4, "Corners_Contra": 5.6},
+    {"Equipo": "Querétaro", "xG_favor": 1.18, "xGA_contra": 1.55, "Forma": 0.44, "Jerarquia": 6.4, "Corners_Favor": 4.3, "Corners_Contra": 5.5},
+    {"Equipo": "Mazatlán FC", "xG_favor": 1.20, "xGA_contra": 1.60, "Forma": 0.40, "Jerarquia": 6.3, "Corners_Favor": 4.2, "Corners_Contra": 5.7},
+    {"Equipo": "FC Juárez", "xG_favor": 1.19, "xGA_contra": 1.64, "Forma": 0.38, "Jerarquia": 6.2, "Corners_Favor": 4.4, "Corners_Contra": 5.8},
+]
+
+
+# ==============================================================
+# 2. ESTILOS CSS "CYBER-QUANT SPORTSBOOK UI"
+# ==============================================================
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700;800&family=Orbitron:wght@700;900&display=swap');
@@ -199,12 +85,11 @@ st.markdown("""
     footer {visibility: hidden !important;}
 
     .block-container {
-        padding-top: 1.4rem !important;
+        padding-top: 1.3rem !important;
         padding-bottom: 3rem !important;
-        max-width: 1400px !important;
+        max-width: 1420px !important;
     }
 
-    /* Fondo oscuro multicapa con resplandor esmeralda y dorado sutil */
     .stApp {
         background-color: #06090e;
         background-image:
@@ -215,7 +100,13 @@ st.markdown("""
         font-family: 'Inter', sans-serif;
     }
 
-    /* Banner Superior de la Terminal */
+    /* Sidebar Cyber-Quant */
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #090d16 0%, #05080d 100%) !important;
+        border-right: 1px solid rgba(255, 215, 0, 0.18) !important;
+    }
+
+    /* Hero Box */
     .hero-box {
         background: linear-gradient(180deg, rgba(16, 24, 38, 0.88) 0%, rgba(8, 12, 20, 0.95) 100%);
         border: 1px solid rgba(255, 215, 0, 0.25);
@@ -224,8 +115,6 @@ st.markdown("""
         margin-bottom: 1.25rem;
         box-shadow: 0 10px 35px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08);
         text-align: center;
-        position: relative;
-        overflow: hidden;
     }
     .status-pill {
         display: inline-flex;
@@ -269,7 +158,7 @@ st.markdown("""
         letter-spacing: 2.2px;
     }
 
-    /* Estilizado de Contenedores Glassmorphism */
+    /* Contenedores de Tarjetas Glassmorphism */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         background: linear-gradient(165deg, rgba(14, 21, 35, 0.90) 0%, rgba(8, 12, 20, 0.96) 100%) !important;
         border: 1px solid rgba(255, 255, 255, 0.09) !important;
@@ -300,7 +189,7 @@ st.markdown("""
         border: 1px solid rgba(255, 215, 0, 0.30);
         color: #ffd700;
         font-family: 'JetBrains Mono', monospace;
-        font-size: 0.68rem;
+        font-size: 0.67rem;
         font-weight: 800;
         letter-spacing: 1px;
         padding: 3px 9px;
@@ -309,7 +198,7 @@ st.markdown("""
     .grid-match-time {
         color: #94a3b8;
         font-family: 'JetBrains Mono', monospace;
-        font-size: 0.70rem;
+        font-size: 0.69rem;
         font-weight: 600;
     }
     .grid-team-row {
@@ -328,7 +217,7 @@ st.markdown("""
         min-width: 0;
     }
     .grid-team-name {
-        font-size: 0.96rem;
+        font-size: 0.95rem;
         font-weight: 700;
         color: #f8fafc;
         white-space: nowrap;
@@ -387,7 +276,7 @@ st.markdown("""
         border-top: 1px dashed rgba(255, 255, 255, 0.08);
     }
 
-    /* Botones Interactivos (Cartelera y Retorno) */
+    /* Botones Interactivos */
     div.stButton > button {
         width: 100%;
         font-family: 'JetBrains Mono', monospace !important;
@@ -410,7 +299,7 @@ st.markdown("""
         transform: translateY(-1px);
     }
 
-    /* Métricas Nativas de Streamlit */
+    /* Métricas Nativas */
     div[data-testid="stMetric"] {
         background: rgba(255, 255, 255, 0.025);
         border: 1px solid rgba(255, 255, 255, 0.07);
@@ -438,7 +327,7 @@ st.markdown("""
         font-size: 0.75rem !important;
     }
 
-    /* Tarjetas del Radar Ejecutivo */
+    /* Radar Ejecutivo */
     .radar-card {
         background: linear-gradient(155deg, rgba(19, 28, 46, 0.95), rgba(10, 14, 23, 0.98));
         border: 1px solid rgba(255, 215, 0, 0.35);
@@ -583,7 +472,7 @@ st.markdown("""
         margin-bottom: 16px;
     }
 
-    /* Tarjetas de Podio para Marcador Exacto */
+    /* Podio de Marcadores Exactos */
     .medal-card {
         border-radius: 12px;
         padding: 12px 10px;
@@ -628,304 +517,275 @@ st.markdown("""
         padding-left: 10px;
     }
 
-    /* Botón de Submit Principal en el Configurador */
     div.stFormSubmitButton > button {
         font-family: 'Orbitron', sans-serif !important;
         font-weight: 900 !important;
-        font-size: 1.02rem !important;
-        letter-spacing: 2px !important;
+        font-size: 0.95rem !important;
+        letter-spacing: 1.8px !important;
         text-transform: uppercase !important;
         background: linear-gradient(90deg, #00c853, #00e676, #00bfa5) !important;
         color: #04120b !important;
         border: none !important;
         border-radius: 10px !important;
-        padding: 0.75rem 1.2rem !important;
-        box-shadow: 0 0 22px rgba(0, 255, 157, 0.35) !important;
-        transition: all 0.25s ease !important;
-    }
-    div.stFormSubmitButton > button:hover {
-        box-shadow: 0 0 32px rgba(0, 255, 157, 0.65) !important;
-        transform: scale(1.01);
+        padding: 0.7rem 1.2rem !important;
+        box-shadow: 0 0 20px rgba(0, 255, 157, 0.35) !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
 
 # ==============================================================
-# 3. CARGA DE DATOS (CON DATASET DE RESPALDO SI NO EXISTE CSV)
+# 3. GESTIÓN DE DATOS EN SESIÓN (SIN @st.cache_data)
 # ==============================================================
-DATOS_DEFAULT_LIGA_MX = [
-    {"Equipo": "América", "xG_favor": 1.88, "xGA_contra": 1.02, "Forma": 0.82, "Jerarquia": 9.5, "Corners_Favor": 5.8, "Corners_Contra": 4.1},
-    {"Equipo": "Cruz Azul", "xG_favor": 1.82, "xGA_contra": 0.98, "Forma": 0.80, "Jerarquia": 9.0, "Corners_Favor": 5.9, "Corners_Contra": 3.9},
-    {"Equipo": "Toluca", "xG_favor": 1.79, "xGA_contra": 1.15, "Forma": 0.76, "Jerarquia": 8.6, "Corners_Favor": 5.5, "Corners_Contra": 4.5},
-    {"Equipo": "Tigres UANL", "xG_favor": 1.72, "xGA_contra": 1.05, "Forma": 0.72, "Jerarquia": 9.2, "Corners_Favor": 6.1, "Corners_Contra": 4.2},
-    {"Equipo": "Monterrey", "xG_favor": 1.70, "xGA_contra": 1.08, "Forma": 0.70, "Jerarquia": 9.1, "Corners_Favor": 5.7, "Corners_Contra": 4.3},
-    {"Equipo": "Guadalajara", "xG_favor": 1.56, "xGA_contra": 1.04, "Forma": 0.74, "Jerarquia": 8.7, "Corners_Favor": 5.4, "Corners_Contra": 4.4},
-    {"Equipo": "Pumas UNAM", "xG_favor": 1.52, "xGA_contra": 1.18, "Forma": 0.62, "Jerarquia": 8.2, "Corners_Favor": 5.2, "Corners_Contra": 4.7},
-    {"Equipo": "Pachuca", "xG_favor": 1.58, "xGA_contra": 1.26, "Forma": 0.60, "Jerarquia": 8.3, "Corners_Favor": 5.6, "Corners_Contra": 4.6},
-    {"Equipo": "León", "xG_favor": 1.49, "xGA_contra": 1.28, "Forma": 0.64, "Jerarquia": 7.9, "Corners_Favor": 5.1, "Corners_Contra": 4.8},
-    {"Equipo": "Atlético de San Luis", "xG_favor": 1.46, "xGA_contra": 1.32, "Forma": 0.58, "Jerarquia": 7.2, "Corners_Favor": 4.8, "Corners_Contra": 5.0},
-    {"Equipo": "Atlas", "xG_favor": 1.28, "xGA_contra": 1.24, "Forma": 0.55, "Jerarquia": 7.4, "Corners_Favor": 4.6, "Corners_Contra": 4.9},
-    {"Equipo": "Tijuana", "xG_favor": 1.42, "xGA_contra": 1.44, "Forma": 0.56, "Jerarquia": 7.1, "Corners_Favor": 4.9, "Corners_Contra": 5.2},
-    {"Equipo": "Necaxa", "xG_favor": 1.34, "xGA_contra": 1.38, "Forma": 0.50, "Jerarquia": 6.9, "Corners_Favor": 4.5, "Corners_Contra": 5.3},
-    {"Equipo": "Santos Laguna", "xG_favor": 1.31, "xGA_contra": 1.52, "Forma": 0.52, "Jerarquia": 7.3, "Corners_Favor": 4.7, "Corners_Contra": 5.4},
-    {"Equipo": "Puebla", "xG_favor": 1.22, "xGA_contra": 1.58, "Forma": 0.42, "Jerarquia": 6.5, "Corners_Favor": 4.4, "Corners_Contra": 5.6},
-    {"Equipo": "Querétaro", "xG_favor": 1.18, "xGA_contra": 1.55, "Forma": 0.44, "Jerarquia": 6.4, "Corners_Favor": 4.3, "Corners_Contra": 5.5},
-    {"Equipo": "Mazatlán FC", "xG_favor": 1.20, "xGA_contra": 1.60, "Forma": 0.40, "Jerarquia": 6.3, "Corners_Favor": 4.2, "Corners_Contra": 5.7},
-    {"Equipo": "FC Juárez", "xG_favor": 1.19, "xGA_contra": 1.64, "Forma": 0.38, "Jerarquia": 6.2, "Corners_Favor": 4.4, "Corners_Contra": 5.8},
-]
+def cargar_dataframe_desde_disco():
+    """
+    Lee en vivo 'ligamx_stats_actualizado.csv' (o 'ligamx_stats_completo.csv'
+    como alternativa local) sin congelar la caché. Si no existe en disco,
+    inicializa el DataFrame base de los 18 clubes.
+    """
+    for ruta in (CSV_DEFAULT_PATH, CSV_LEGACY_PATH):
+        if os.path.exists(ruta):
+            df = pd.read_csv(ruta)
+            faltantes = COLUMNAS_REQUERIDAS - set(df.columns)
+            if faltantes:
+                raise ValueError(f"El archivo `{ruta}` no contiene las columnas requeridas: {faltantes}")
+            return df, f"Archivo local: `{ruta}`"
+
+    return pd.DataFrame(DATOS_BASE_LIGA_MX), "Base cuantitativa integrada (18 clubes)"
 
 
-@st.cache_data
-def cargar_datos(path):
-    columnas_requeridas = {
-        "Equipo", "xG_favor", "xGA_contra", "Forma", "Jerarquia",
-        "Corners_Favor", "Corners_Contra"
-    }
+def obtener_lista_equipos(df):
+    """Extrae la lista ordenada de clubes desde la columna o índice 'Equipo'."""
+    if "Equipo" in df.columns:
+        return [str(x).strip() for x in df["Equipo"].tolist()]
+    return [str(x).strip() for x in df.index.tolist()]
+
+
+def sincronizar_simulaciones_jornada(df_stats, calendario):
+    """
+    Ejecuta el motor cuantitativo (`calcular_probabilidades_partido`) para cada
+    encuentro del calendario sincronizado con ESPN.
+    """
+    resultados = []
+    for idx, evento in enumerate(calendario):
+        home_team = evento["home"]
+        away_team = evento["away"]
+        sim = calcular_probabilidades_partido(home_team, away_team, df_stats)
+        sim["id_partido"] = evento.get("id_partido", f"LMX-{idx + 1}")
+        sim["nombre_evento"] = evento.get("nombre", f"{away_team} vs {home_team}")
+        sim["horario"] = evento.get("hora", "JORNADA LIGA MX")
+        sim["estado"] = evento.get("estado", "Programado")
+        sim["idx_partido"] = idx
+        resultados.append(sim)
+    return resultados
+
+
+# Inicialización estricta en st.session_state
+if "partido_activo" not in st.session_state:
+    st.session_state.partido_activo = None
+
+if "df_ligamx" not in st.session_state:
     try:
-        df = pd.read_csv(path)
-        faltantes = columnas_requeridas - set(df.columns)
-        if faltantes:
-            raise ValueError(f"Faltan columnas en el CSV: {faltantes}")
-        return df.set_index("Equipo"), True
-    except FileNotFoundError:
-        df_fallback = pd.DataFrame(DATOS_DEFAULT_LIGA_MX)
-        return df_fallback.set_index("Equipo"), False
+        df_inicial, fuente_str = cargar_dataframe_desde_disco()
+        st.session_state.df_ligamx = df_inicial
+        st.session_state.fuente_datos_ligamx = fuente_str
+    except Exception as exc:
+        st.error(f"⚠️ Error al cargar estadísticas iniciales: {exc}")
+        st.stop()
 
+if "calendario_ligamx" not in st.session_state:
+    equipos_actuales = obtener_lista_equipos(st.session_state.df_ligamx)
+    st.session_state.calendario_ligamx = obtener_calendario_ligamx(equipos_df=equipos_actuales)
 
-try:
-    df_equipos, csv_cargado_ok = cargar_datos(CSV_PATH)
-except ValueError as e:
-    st.error(f"⚠ {e}")
-    st.stop()
+if "resultados_jornada" not in st.session_state:
+    st.session_state.resultados_jornada = sincronizar_simulaciones_jornada(
+        st.session_state.df_ligamx,
+        st.session_state.calendario_ligamx,
+    )
 
 
 # ==============================================================
-# 4. MOTOR MATEMÁTICO AVANZADO Y MOMIOS JUSTOS (FAIR ODDS)
+# 4. BARRA LATERAL: CARGA DE CSV EN CALIENTE Y SINCRONIZACIÓN ESPN
 # ==============================================================
-def poisson_pmf(k, lam):
-    if lam <= 0:
-        return 1.0 if k == 0 else 0.0
-    return (lam ** k) * math.exp(-lam) / math.factorial(k)
+with st.sidebar:
+    st.markdown(
+        "<div style='font-family:Orbitron,sans-serif;font-size:1.15rem;font-weight:900;"
+        "color:#ffd700;letter-spacing:1.5px;margin-bottom:4px;'>⚡ TERMINAL SHARP</div>"
+        "<div style='font-family:JetBrains Mono,monospace;font-size:0.72rem;color:#00ff9d;"
+        "margin-bottom:16px;'>MÓDULO LIGA MX · CONTROL DE SESIÓN</div>",
+        unsafe_allow_html=True,
+    )
+
+    if st.button("🔄 Refrescar Calendario y Datos", key="btn_refrescar_sidebar", use_container_width=True):
+        # Si no se subió un CSV manual, recargamos desde disco en vivo (ligamx_stats_actualizado.csv)
+        if not st.session_state.get("csv_subido_manualmente", False):
+            df_fresco, fuente_fresca = cargar_dataframe_desde_disco()
+            st.session_state.df_ligamx = df_fresco
+            st.session_state.fuente_datos_ligamx = fuente_fresca
+
+        equipos_ref = obtener_lista_equipos(st.session_state.df_ligamx)
+        st.session_state.calendario_ligamx = obtener_calendario_ligamx(equipos_df=equipos_ref)
+        st.session_state.resultados_jornada = sincronizar_simulaciones_jornada(
+            st.session_state.df_ligamx,
+            st.session_state.calendario_ligamx,
+        )
+        st.session_state.partido_activo = None
+        st.rerun()
+
+    st.markdown("---")
+    st.markdown(
+        "<div style='font-family:JetBrains Mono,monospace;font-size:0.76rem;font-weight:800;"
+        "color:#cbd5e1;margin-bottom:6px;'>📂 ACTUALIZAR BASE DE DATOS (CSV)</div>",
+        unsafe_allow_html=True,
+    )
+
+    archivo_csv = st.file_uploader(
+        "Subir ligamx_stats_actualizado.csv",
+        type=["csv"],
+        key="uploader_csv_ligamx",
+        help="Columnas requeridas: Equipo, xG_favor, xGA_contra, Forma, Jerarquia, Corners_Favor, Corners_Contra",
+    )
+
+    if archivo_csv is not None:
+        raw_bytes = archivo_csv.getvalue()
+        firma_hash = hashlib.md5(raw_bytes).hexdigest()
+
+        if st.session_state.get("ultimo_hash_csv") != firma_hash:
+            try:
+                archivo_csv.seek(0)
+                df_nuevo = pd.read_csv(archivo_csv)
+                faltantes = COLUMNAS_REQUERIDAS - set(df_nuevo.columns)
+                if faltantes:
+                    st.error(f"⚠️ Faltan columnas en el CSV subido: {faltantes}")
+                else:
+                    st.session_state.df_ligamx = df_nuevo
+                    st.session_state.ultimo_hash_csv = firma_hash
+                    st.session_state.csv_subido_manualmente = True
+                    st.session_state.fuente_datos_ligamx = f"Upload en sesión: `{archivo_csv.name}`"
+
+                    equipos_nuevos = obtener_lista_equipos(df_nuevo)
+                    st.session_state.calendario_ligamx = obtener_calendario_ligamx(equipos_df=equipos_nuevos)
+                    st.session_state.resultados_jornada = sincronizar_simulaciones_jornada(
+                        df_nuevo,
+                        st.session_state.calendario_ligamx,
+                    )
+                    st.session_state.partido_activo = None
+                    st.rerun()
+            except Exception as exc:
+                st.error(f"⚠️ No se pudo procesar el archivo CSV: {exc}")
+
+    st.markdown("---")
+    st.caption(f"📊 **Fuente activa:** {st.session_state.get('fuente_datos_ligamx', CSV_DEFAULT_PATH)}")
+    st.caption(f"🏟️ **Clubes cargados:** {len(st.session_state.df_ligamx)}")
+    st.caption(f"📅 **Partidos en cartelera:** {len(st.session_state.get('calendario_ligamx', []))}")
+
+    with st.expander("📋 Ver Tabla de Métricas Activa"):
+        st.dataframe(
+            st.session_state.df_ligamx,
+            use_container_width=True,
+            hide_index=True,
+        )
 
 
-def formatear_momio_justo(prob):
-    if prob <= 0.005:
-        return "99.0 (+9800)"
-    if prob >= 0.995:
-        return "1.01 (-10000)"
+# ==============================================================
+# 5. COMPONENTES VISUALES AUXILIARES
+# ==============================================================
+def generar_pastillas_forma(valor_forma, seed_offset=0):
+    """Genera 5 pastillas W/D/L en verde, gris y rojo a partir del índice de Forma."""
+    try:
+        f_val = float(valor_forma)
+    except (TypeError, ValueError):
+        f_val = 0.50
 
-    decimal_odd = 1.0 / prob
-    if prob >= 0.5:
-        americano = -int(round((prob / (1.0 - prob)) * 100))
-        str_amer = f"{americano}"
+    if f_val > 10.0:
+        f_val = f_val / 100.0
+    elif f_val > 1.0:
+        f_val = f_val / 10.0
+    f_val = max(0.0, min(1.0, f_val))
+
+    if f_val >= 0.82:
+        secuencia = ["W", "W", "W", "D", "W"]
+    elif f_val >= 0.68:
+        secuencia = ["W", "D", "W", "W", "L"] if seed_offset % 2 == 0 else ["W", "W", "D", "L", "W"]
+    elif f_val >= 0.54:
+        secuencia = ["W", "D", "L", "W", "D"] if seed_offset % 2 == 0 else ["D", "W", "W", "L", "D"]
+    elif f_val >= 0.42:
+        secuencia = ["D", "L", "W", "D", "L"] if seed_offset % 2 == 0 else ["L", "W", "D", "L", "D"]
+    elif f_val >= 0.28:
+        secuencia = ["L", "D", "L", "W", "L"]
     else:
-        americano = int(round(((1.0 - prob) / prob) * 100))
-        str_amer = f"+{americano}"
+        secuencia = ["L", "L", "D", "L", "L"]
 
-    return f"{decimal_odd:.2f} ({str_amer})"
-
-
-def obtener_factor_localia(eq_local, row_local):
-    if "Localia" in row_local and pd.notna(row_local["Localia"]):
-        return float(row_local["Localia"])
-    canon = resolver_nombre_canonico(eq_local)
-    if canon in FACTOR_LOCALIA_EQUIPOS:
-        return FACTOR_LOCALIA_EQUIPOS[canon]
-    return _LOCALIA_NORMALIZADA.get(_normalizar(eq_local), HOME_ADVANTAGE_DEFAULT)
-
-
-def calcular_xg_esperado(eq_local, row_local, row_visit, liga_gf_avg, liga_ga_avg):
-    ataque_local = row_local["xG_favor"] / liga_gf_avg
-    defensa_visit = row_visit["xGA_contra"] / liga_ga_avg
-    ataque_visit = row_visit["xG_favor"] / liga_gf_avg
-    defensa_local = row_local["xGA_contra"] / liga_ga_avg
-
-    fuerza_base_local = (ataque_local * defensa_visit) ** 0.85
-    fuerza_base_visit = (ataque_visit * defensa_local) ** 0.85
-
-    forma_local = 0.92 + (row_local["Forma"] * 0.16)
-    forma_visit = 0.92 + (row_visit["Forma"] * 0.16)
-
-    diff_jerarquia = (row_local["Jerarquia"] - row_visit["Jerarquia"]) * 0.01
-    ventaja_local = obtener_factor_localia(eq_local, row_local)
-
-    xg_local = (
-        liga_gf_avg * fuerza_base_local * ventaja_local
-        * forma_local * (1 + diff_jerarquia)
-    )
-    xg_visit = (
-        liga_gf_avg * fuerza_base_visit
-        * forma_visit * (1 - diff_jerarquia)
-    )
-
-    xg_local = max(0.25, min(xg_local, 3.80))
-    xg_visit = max(0.20, min(xg_visit, 3.50))
-
-    return round(xg_local, 3), round(xg_visit, 3), round(ventaja_local, 2)
-
-
-def tau_dixon_coles(gl, gv, xg_local, xg_visit, rho=DIXON_COLES_RHO):
-    if gl == 0 and gv == 0:
-        return max(0.0, 1.0 - (xg_local * xg_visit * rho))
-    elif gl == 0 and gv == 1:
-        return max(0.0, 1.0 + (xg_local * rho))
-    elif gl == 1 and gv == 0:
-        return max(0.0, 1.0 + (xg_visit * rho))
-    elif gl == 1 and gv == 1:
-        return max(0.0, 1.0 - rho)
-    return 1.0
-
-
-def generar_matriz_poisson(xg_local, xg_visit, max_goles=MAX_GOLES_CALCULO):
-    matriz = {}
-    suma_total = 0.0
-
-    for gl in range(max_goles + 1):
-        p_l = poisson_pmf(gl, xg_local)
-        for gv in range(max_goles + 1):
-            p_v = poisson_pmf(gv, xg_visit)
-            prob_final = (p_l * p_v) * tau_dixon_coles(gl, gv, xg_local, xg_visit)
-            matriz[(gl, gv)] = prob_final
-            suma_total += prob_final
-
-    if suma_total > 0:
-        for k in matriz:
-            matriz[k] /= suma_total
-
-    return matriz
-
-
-def calcular_mercados(matriz):
-    p_local = p_empate = p_visit = 0.0
-    p_btts = p_over25 = p_under25 = p_under35 = 0.0
-    p_clean_local = p_clean_visit = 0.0
-    p_handicap_local_15 = p_handicap_visit_15 = 0.0
-
-    for (gl, gv), p in matriz.items():
-        if gl > gv:
-            p_local += p
-        elif gl == gv:
-            p_empate += p
-        else:
-            p_visit += p
-
-        if gl >= 1 and gv >= 1:
-            p_btts += p
-        if (gl + gv) >= 3:
-            p_over25 += p
-        else:
-            p_under25 += p
-        if (gl + gv) <= 3:
-            p_under35 += p
-        if gv == 0:
-            p_clean_local += p
-        if gl == 0:
-            p_clean_visit += p
-
-        if (gl - gv) >= 2:
-            p_handicap_local_15 += p
-        if (gv - gl) >= 2:
-            p_handicap_visit_15 += p
-
-    sin_empate = p_local + p_visit
-    dnb_local = (p_local / sin_empate) if sin_empate > 0 else 0.5
-    dnb_visit = (p_visit / sin_empate) if sin_empate > 0 else 0.5
-
-    doble_1x = p_local + p_empate
-    doble_x2 = p_visit + p_empate
-    doble_12 = p_local + p_visit
-
-    return {
-        "local": p_local, "empate": p_empate, "visitante": p_visit,
-        "btts": p_btts, "no_btts": 1.0 - p_btts,
-        "over25": p_over25, "under25": p_under25, "under35": p_under35,
-        "clean_sheet_local": p_clean_local, "clean_sheet_visitante": p_clean_visit,
-        "dnb_local": dnb_local, "dnb_visit": dnb_visit,
-        "doble_1x": doble_1x, "doble_x2": doble_x2, "doble_12": doble_12,
-        "hc_local_15": p_handicap_local_15, "hc_visit_15": p_handicap_visit_15,
+    colores = {
+        "W": ("#10b981", "#03261b"),
+        "D": ("#64748b", "#f8fafc"),
+        "L": ("#ef4444", "#ffffff"),
     }
 
-
-def top_marcadores(matriz, top_n=3, max_goles=MAX_GOLES_DISPLAY):
-    filtrados = {k: v for k, v in matriz.items() if k[0] <= max_goles and k[1] <= max_goles}
-    return sorted(filtrados.items(), key=lambda x: x[1], reverse=True)[:top_n]
-
-
-def calcular_xcorners(row_local, row_visit, xg_local, xg_visit, linea=LINEA_CORNERS):
-    base_local = (row_local["Corners_Favor"] + row_visit["Corners_Contra"]) / 2.0
-    base_visit = (row_visit["Corners_Favor"] + row_local["Corners_Contra"]) / 2.0
-
-    dominio_local = (xg_local / max(xg_visit, 0.3)) ** 0.12
-    dominio_visit = (xg_visit / max(xg_local, 0.3)) ** 0.12
-
-    corners_local = base_local * dominio_local
-    corners_visit = base_visit * dominio_visit
-    total_corners = corners_local + corners_visit
-
-    k_max_under = int(math.floor(linea))
-    prob_under = sum(poisson_pmf(k, total_corners) for k in range(k_max_under + 1))
-    prob_over = max(0.0, min(1.0, 1.0 - prob_under))
-
-    return (
-        round(corners_local, 2),
-        round(corners_visit, 2),
-        round(total_corners, 2),
-        round(prob_over, 3),
-        round(prob_under, 3),
+    return "".join(
+        f'<span class="form-pill" style="background:{colores[res][0]};color:{colores[res][1]};">{res}</span>'
+        for res in secuencia
     )
 
 
-def analizar_partido(eq_local, eq_visitante, liga_gf_avg, liga_ga_avg, idx_partido=0, horario=None):
-    row_local = df_equipos.loc[eq_local]
-    row_visit = df_equipos.loc[eq_visitante]
+def crear_heatmap_plotly(matriz, local, visitante):
+    """Construye el mapa de calor interactivo 0-0 a 6-6 en Plotly."""
+    z_data = []
+    text_data = []
+    goles_rango = list(range(MATRIZ_MAX_GOLES + 1))
 
-    xg_l, xg_v, factor_loc = calcular_xg_esperado(eq_local, row_local, row_visit, liga_gf_avg, liga_ga_avg)
-    matriz = generar_matriz_poisson(xg_l, xg_v)
-    mercados = calcular_mercados(matriz)
-    top3 = top_marcadores(matriz, top_n=3)
-    xc_l, xc_v, total_corners, prob_over_c, prob_under_c = calcular_xcorners(row_local, row_visit, xg_l, xg_v)
+    for gl in goles_rango:
+        row_z = []
+        row_text = []
+        for gv in goles_rango:
+            prob = matriz.get((gl, gv), 0.0) * 100
+            row_z.append(prob)
+            row_text.append(f"<b>{prob:.1f}%</b><br>{gl}-{gv}")
+        z_data.append(row_z)
+        text_data.append(row_text)
 
-    gl_top, gv_top = top3[0][0]
-    prob_marcador_top = top3[0][1]
+    fig = go.Figure(data=go.Heatmap(
+        z=z_data,
+        x=[str(x) for x in goles_rango],
+        y=[str(y) for y in goles_rango],
+        text=text_data,
+        texttemplate="%{text}",
+        textfont=dict(family="JetBrains Mono", size=11, color="white"),
+        hoverinfo="text",
+        colorscale=[
+            [0.0, "#090d16"],
+            [0.15, "#112233"],
+            [0.4, "#0f5257"],
+            [0.7, "#00b4d8"],
+            [1.0, "#00ff9d"],
+        ],
+        showscale=False,
+        opacity=0.84,
+        xgap=4,
+        ygap=4,
+    ))
 
-    horario_str = horario or HORARIOS_JORNADA_DEFAULT[idx_partido % len(HORARIOS_JORNADA_DEFAULT)]
-
-    return {
-        "id": idx_partido,
-        "local": eq_local,
-        "visitante": eq_visitante,
-        "horario": horario_str,
-        "error": False,
-        "xg_l": xg_l,
-        "xg_v": xg_v,
-        "factor_loc": factor_loc,
-        "forma_l": float(row_local["Forma"]),
-        "forma_v": float(row_visit["Forma"]),
-        "jerarquia_l": float(row_local["Jerarquia"]),
-        "jerarquia_v": float(row_visit["Jerarquia"]),
-        "xga_l": float(row_local["xGA_contra"]),
-        "xga_v": float(row_visit["xGA_contra"]),
-        "xgf_l": float(row_local["xG_favor"]),
-        "xgf_v": float(row_visit["xG_favor"]),
-        "matriz": matriz,
-        "mercados": mercados,
-        "top3": top3,
-        "proy_gl": gl_top,
-        "proy_gv": gv_top,
-        "proy_prob": prob_marcador_top,
-        "xc_l": xc_l,
-        "xc_v": xc_v,
-        "total_corners": total_corners,
-        "prob_over_c": prob_over_c,
-        "prob_under_c": prob_under_c,
-    }
+    fig.update_layout(
+        xaxis=dict(
+            title=dict(text=f"{visitante.upper()} (GOLES) →", font=dict(family="JetBrains Mono", size=12, color="#ffd700")),
+            side="top",
+            tickfont=dict(family="JetBrains Mono", color="#ffd700"),
+        ),
+        yaxis=dict(
+            title=dict(text=f"← {local.upper()} (GOLES)", font=dict(family="JetBrains Mono", size=12, color="#00ff9d")),
+            autorange="reversed",
+            tickfont=dict(family="JetBrains Mono", color="#00ff9d"),
+        ),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=40, r=20, t=55, b=20),
+        height=420,
+    )
+    return fig
 
 
-# ==============================================================
-# 5. COMPONENTES VISUALES: RADAR, VISTA A (GRID) Y VISTA B (DETALLE)
-# ==============================================================
 def render_radar_jornada(resultados_validos):
+    """Renderiza el bloque superior con los 4 mejores picks matemáticos de la jornada."""
     if not resultados_validos:
         return
 
@@ -959,15 +819,15 @@ def render_radar_jornada(resultados_validos):
     mejor_corner = None
     max_prob_c = -1.0
     for r in resultados_validos:
+        linea_c = r.get("linea_corners", LINEA_CORNERS_DEFAULT)
         if r["prob_over_c"] > max_prob_c:
             max_prob_c = r["prob_over_c"]
-            mejor_corner = (r, f"Over {LINEA_CORNERS} Córners", r["prob_over_c"], f"Media Proy: {r['total_corners']} 🚩")
+            mejor_corner = (r, f"Over {linea_c} Córners", r["prob_over_c"], f"Media Proy: {r['total_corners']} 🚩")
         if r["prob_under_c"] > max_prob_c:
             max_prob_c = r["prob_under_c"]
-            mejor_corner = (r, f"Under {LINEA_CORNERS} Córners", r["prob_under_c"], f"Media Proy: {r['total_corners']} 🚩")
+            mejor_corner = (r, f"Under {linea_c} Córners", r["prob_under_c"], f"Media Proy: {r['total_corners']} 🚩")
 
     c1, c2, c3, c4 = st.columns(4)
-
     tarjetas_radar = [
         (c1, "🔒 EL LOCK (1X2)", mejor_1x2[0], mejor_1x2[1], mejor_1x2[2], mejor_1x2[3]),
         (c2, "⚽ FIJA DE GOLES (2.5)", mejor_goles[0], mejor_goles[1], mejor_goles[2], mejor_goles[3]),
@@ -982,7 +842,7 @@ def render_radar_jornada(resultados_validos):
                 f"""
                 <div class="radar-card">
                     <div class="radar-title">{titulo}</div>
-                    <div class="radar-match">{EMOJIS_LIGA.get(r_match['local'], '⚽')} {r_match['local']} vs {r_match['visitante']} {EMOJIS_LIGA.get(r_match['visitante'], '⚽')}</div>
+                    <div class="radar-match">{EMOJIS_LIGA_MX.get(r_match['local'], '⚽')} {r_match['local']} vs {r_match['visitante']} {EMOJIS_LIGA_MX.get(r_match['visitante'], '⚽')}</div>
                     <div class="radar-pick">{pick_str} · {prob_val*100:.1f}%</div>
                     <div class="radar-odds">💡 Fair Odd: <b style="color:#fff;">{momio_str}</b><br>{extra_info}</div>
                 </div>
@@ -993,68 +853,13 @@ def render_radar_jornada(resultados_validos):
     st.write("")
 
 
-def crear_heatmap_plotly(matriz, local, visitante):
-    z_data = []
-    text_data = []
-    goles_rango = list(range(MATRIZ_MAX_GOLES + 1))
-
-    for gl in goles_rango:
-        row_z = []
-        row_text = []
-        for gv in goles_rango:
-            prob = matriz.get((gl, gv), 0.0) * 100
-            row_z.append(prob)
-            row_text.append(f"<b>{prob:.1f}%</b><br>{gl}-{gv}")
-        z_data.append(row_z)
-        text_data.append(row_text)
-
-    fig = go.Figure(data=go.Heatmap(
-        z=z_data,
-        x=[str(x) for x in goles_rango],
-        y=[str(y) for y in goles_rango],
-        text=text_data,
-        texttemplate="%{text}",
-        textfont=dict(family="JetBrains Mono", size=11, color="white"),
-        hoverinfo="text",
-        colorscale=[
-            [0.0, '#090d16'],
-            [0.15, '#112233'],
-            [0.4, '#0f5257'],
-            [0.7, '#00b4d8'],
-            [1.0, '#00ff9d']
-        ],
-        showscale=False,
-        opacity=0.84,
-        xgap=4,
-        ygap=4
-    ))
-
-    fig.update_layout(
-        xaxis=dict(
-            title=dict(text=f"{visitante.upper()} (GOLES) →", font=dict(family="JetBrains Mono", size=12, color="#ffd700")),
-            side="top",
-            tickfont=dict(family="JetBrains Mono", color="#ffd700")
-        ),
-        yaxis=dict(
-            title=dict(text=f"← {local.upper()} (GOLES)", font=dict(family="JetBrains Mono", size=12, color="#00ff9d")),
-            autorange="reversed",
-            tickfont=dict(family="JetBrains Mono", color="#00ff9d")
-        ),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        margin=dict(l=40, r=20, t=55, b=20),
-        height=420
-    )
-    return fig
-
-
 def render_vista_cartelera_grid(resultados):
     """
-    VISTA A: CARTELERA EN CUADRÍCULA (GRID 3 COLUMNAS ESTILO FLASHSCORE / SOFASCORE)
-    Usa escudo_html(equipo, size=32) con el CDN oficial de ESPN.
+    VISTA A: Cartelera en Cuadrícula de 3 Columnas (st.columns(3))
+    con escudos ESPN de 32px, pastillas W/D/L y botón 'LEER ANÁLISIS →'.
     """
     st.markdown(
-        "<div class='sec-header'>🏟️ CARTELERA INTERACTIVA DE JORNADA · SELECCIONA UN ENCUENTRO PARA ANÁLISIS PROFUNDO</div>",
+        "<div class='sec-header'>🏟️ CARTELERA SINCRONIZADA DE JORNADA (ESPN API) · SELECCIONA UN ENCUENTRO</div>",
         unsafe_allow_html=True,
     )
 
@@ -1067,17 +872,15 @@ def render_vista_cartelera_grid(resultados):
             with cols[col_idx]:
                 with st.container(border=True):
                     if r.get("error"):
-                        st.error(
-                            f"⚠️ Partido #{idx_global + 1}: {r['local']} no puede enfrentarse a sí mismo. "
-                            "Reconfigura este cruce arriba."
-                        )
+                        st.error(f"⚠️ Partido #{idx_global + 1}: {r.get('mensaje_error', 'Error de configuración')}")
                         continue
 
                     local = r["local"]
                     visitante = r["visitante"]
                     mercados = r["mercados"]
-                    logo_local_32 = escudo_html(local, size=32)
-                    logo_visit_32 = escudo_html(visitante, size=32)
+
+                    logo_local_32 = escudo_ligamx_html(local, size=32)
+                    logo_visit_32 = escudo_ligamx_html(visitante, size=32)
 
                     pills_local = generar_pastillas_forma(r["forma_l"], seed_offset=idx_global)
                     pills_visit = generar_pastillas_forma(r["forma_v"], seed_offset=idx_global + 1)
@@ -1093,11 +896,12 @@ def render_vista_cartelera_grid(resultados):
                     pick_corto = max(opciones_1x2, key=opciones_1x2.get)
                     prob_pick = opciones_1x2[pick_corto] * 100
 
+                    estado_badge = r.get("estado", "Programado")
                     st.markdown(
                         f"""
                         <div class="grid-card-header">
-                            <span class="grid-league-badge">⚽ LIGA MX · JORNADA</span>
-                            <span class="grid-match-time">🕒 {r['horario']}</span>
+                            <span class="grid-league-badge">⚽ LIGA MX · {estado_badge.upper()}</span>
+                            <span class="grid-match-time">🕒 {r.get('horario', 'JORNADA')}</span>
                         </div>
                         <div class="grid-team-row">
                             <div class="grid-team-info">
@@ -1127,17 +931,18 @@ def render_vista_cartelera_grid(resultados):
 
                     if st.button(
                         "LEER ANÁLISIS →",
-                        key=f"btn_ver_partido_{idx_global}",
+                        key=f"btn_ver_partido_{idx_global}_{r.get('id_partido', idx_global)}",
                         use_container_width=True,
                     ):
-                        st.session_state.partido_activo = (local, visitante, idx_global)
+                        st.session_state.partido_activo = idx_global
                         st.rerun()
 
 
 def render_vista_detalle_partido(r, idx_partido):
     """
-    VISTA B: PANTALLA DETALLADA DE PARTIDO SELECCIONADO
-    Usa escudo_html(equipo, size=64) en el Scoreboard TV Header.
+    VISTA B: Pantalla Detallada de Partido Seleccionado
+    con Scoreboard TV Header (escudos a 64px), Barra 1X2, Mercados Asiáticos,
+    Podio de Marcadores Exactos, Córners proyectados y Matriz Plotly.
     """
     col_back, col_info = st.columns([3.5, 6.5])
     with col_back:
@@ -1148,7 +953,8 @@ def render_vista_detalle_partido(r, idx_partido):
         st.markdown(
             f"<div style='text-align:right; font-family:JetBrains Mono,monospace; font-size:0.80rem; "
             f"color:#94a3b8; padding-top:10px;'>"
-            f"📍 EXPEDIENTE CUANTITATIVO · ENCUENTRO #{idx_partido + 1} · {r.get('horario', 'LIGA MX')}</div>",
+            f"📍 EXPEDIENTE CUANTITATIVO · ID #{r.get('id_partido', idx_partido + 1)} · "
+            f"{r.get('horario', 'LIGA MX')} ({r.get('estado', 'Programado')})</div>",
             unsafe_allow_html=True,
         )
 
@@ -1157,6 +963,7 @@ def render_vista_detalle_partido(r, idx_partido):
     local = r["local"]
     visitante = r["visitante"]
     mercados = r["mercados"]
+    fair_odds = r["fair_odds"]
     xg_l = r["xg_l"]
     xg_v = r["xg_v"]
 
@@ -1174,14 +981,14 @@ def render_vista_detalle_partido(r, idx_partido):
     momio_top = formatear_momio_justo(prob_top)
 
     with st.container(border=True):
-        # 1. SCOREBOARD TV HEADER CON LOGOS OFICIALES EN GRANDE (size=64)
+        # 1. SCOREBOARD TV HEADER CON LOGOS OFICIALES EN GRANDE (64px)
         st.markdown(
             f"""
             <div class="scoreboard">
                 <div class="sb-team">
-                    {escudo_html(local, size=64)}
+                    {escudo_ligamx_html(local, size=64)}
                     <div>
-                        <div class="sb-name">{EMOJIS_LIGA.get(local, '⚽')} {local}</div>
+                        <div class="sb-name">{EMOJIS_LIGA_MX.get(local, '⚽')} {local}</div>
                         <div class="sb-tag">LOCAL · xG Proy: <b style="color:#00ff9d;">{xg_l:.2f}</b> · Factor Loc: x{r['factor_loc']}</div>
                         <div style="margin-top:6px;">{generar_pastillas_forma(r['forma_l'], seed_offset=idx_partido)}</div>
                     </div>
@@ -1195,18 +1002,18 @@ def render_vista_detalle_partido(r, idx_partido):
                 </div>
                 <div class="sb-team right">
                     <div>
-                        <div class="sb-name">{visitante} {EMOJIS_LIGA.get(visitante, '⚽')}</div>
+                        <div class="sb-name">{visitante} {EMOJIS_LIGA_MX.get(visitante, '⚽')}</div>
                         <div class="sb-tag">VISITA · xG Proy: <b style="color:#ffd700;">{xg_v:.2f}</b> · xG Total: {xg_l + xg_v:.2f}</div>
                         <div style="margin-top:6px;display:flex;justify-content:flex-end;">{generar_pastillas_forma(r['forma_v'], seed_offset=idx_partido + 1)}</div>
                     </div>
-                    {escudo_html(visitante, size=64)}
+                    {escudo_ligamx_html(visitante, size=64)}
                 </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-        # 2. BARRA TRICOLOR 1X2 (TUG-OF-WAR VISUAL)
+        # 2. BARRA TRICOLOR 1X2 (TUG-OF-WAR)
         st.markdown(
             f"""
             <div class="prob-bar-wrapper">
@@ -1242,13 +1049,13 @@ def render_vista_detalle_partido(r, idx_partido):
         st.markdown("<div class='sec-header'>🎲 Mercado Principal 1X2 y Momios Justos (Fair Odds)</div>", unsafe_allow_html=True)
         col1, col2, col3 = st.columns(3)
         etiquetas_1x2 = [
-            (col1, f"👑 {local} (1)" if pick_top == f"Gana {local}" else f"Gana {local} (1)", mercados["local"]),
-            (col2, "👑 Empate (X)" if pick_top == "Empate" else "Empate (X)", mercados["empate"]),
-            (col3, f"👑 {visitante} (2)" if pick_top == f"Gana {visitante}" else f"Gana {visitante} (2)", mercados["visitante"]),
+            (col1, f"👑 {local} (1)" if pick_top == f"Gana {local}" else f"Gana {local} (1)", mercados["local"], fair_odds["local"]),
+            (col2, "👑 Empate (X)" if pick_top == "Empate" else "Empate (X)", mercados["empate"], fair_odds["empate"]),
+            (col3, f"👑 {visitante} (2)" if pick_top == f"Gana {visitante}" else f"Gana {visitante} (2)", mercados["visitante"], fair_odds["visitante"]),
         ]
-        for col, label, prob in etiquetas_1x2:
+        for col, label, prob, f_odd in etiquetas_1x2:
             with col:
-                st.metric(label, f"{prob*100:.1f}%", delta=f"Fair Odd: {formatear_momio_justo(prob)}", delta_color="off")
+                st.metric(label, f"{prob*100:.1f}%", delta=f"Fair Odd: {f_odd}", delta_color="off")
 
         st.write("")
 
@@ -1259,28 +1066,28 @@ def render_vista_detalle_partido(r, idx_partido):
             st.metric(
                 f"🛡️ {local} DNB (Sin Empate)",
                 f"{mercados['dnb_local']*100:.1f}%",
-                delta=f"Fair: {formatear_momio_justo(mercados['dnb_local'])}",
+                delta=f"Fair: {fair_odds['dnb_local']}",
                 delta_color="off",
             )
         with a2:
             st.metric(
                 f"🛡️ {visitante} DNB (Sin Empate)",
                 f"{mercados['dnb_visit']*100:.1f}%",
-                delta=f"Fair: {formatear_momio_justo(mercados['dnb_visit'])}",
+                delta=f"Fair: {fair_odds['dnb_visit']}",
                 delta_color="off",
             )
         with a3:
             if mercados["doble_1x"] >= mercados["doble_x2"]:
-                lbl_dc, prob_dc = f"🔒 Doble Op: {local}/Emp (1X)", mercados["doble_1x"]
+                lbl_dc, prob_dc, odd_dc = f"🔒 Doble Op: {local}/Emp (1X)", mercados["doble_1x"], fair_odds["doble_1x"]
             else:
-                lbl_dc, prob_dc = f"🔒 Doble Op: {visitante}/Emp (X2)", mercados["doble_x2"]
-            st.metric(lbl_dc, f"{prob_dc*100:.1f}%", delta=f"Fair: {formatear_momio_justo(prob_dc)}", delta_color="off")
+                lbl_dc, prob_dc, odd_dc = f"🔒 Doble Op: {visitante}/Emp (X2)", mercados["doble_x2"], fair_odds["doble_x2"]
+            st.metric(lbl_dc, f"{prob_dc*100:.1f}%", delta=f"Fair: {odd_dc}", delta_color="off")
         with a4:
             if mercados["hc_local_15"] >= mercados["hc_visit_15"]:
-                lbl_hc, prob_hc = f"⚡ Hándicap {local} (-1.5)", mercados["hc_local_15"]
+                lbl_hc, prob_hc, odd_hc = f"⚡ Hándicap {local} (-1.5)", mercados["hc_local_15"], fair_odds["hc_local_15"]
             else:
-                lbl_hc, prob_hc = f"⚡ Hándicap {visitante} (-1.5)", mercados["hc_visit_15"]
-            st.metric(lbl_hc, f"{prob_hc*100:.1f}%", delta=f"Fair: {formatear_momio_justo(prob_hc)}", delta_color="off")
+                lbl_hc, prob_hc, odd_hc = f"⚡ Hándicap {visitante} (-1.5)", mercados["hc_visit_15"], fair_odds["hc_visit_15"]
+            st.metric(lbl_hc, f"{prob_hc*100:.1f}%", delta=f"Fair: {odd_hc}", delta_color="off")
 
         st.write("")
 
@@ -1293,12 +1100,12 @@ def render_vista_detalle_partido(r, idx_partido):
             clases_medalla = ["medal-gold", "medal-silver", "medal-bronze"]
             titulos_medalla = ["🥇 ORO (1º)", "🥈 PLATA (2º)", "🥉 BRONCE (3º)"]
 
-            for idx, ((gl, gv), prob) in enumerate(r["top3"]):
-                with cols_top[idx]:
+            for idx_m, ((gl, gv), prob) in enumerate(r["top3"]):
+                with cols_top[idx_m]:
                     st.markdown(
                         f"""
-                        <div class="medal-card {clases_medalla[idx]}">
-                            <div style="font-size:0.70rem; color:#cbd5e1; font-weight:700;">{titulos_medalla[idx]}</div>
+                        <div class="medal-card {clases_medalla[idx_m]}">
+                            <div style="font-size:0.70rem; color:#cbd5e1; font-weight:700;">{titulos_medalla[idx_m]}</div>
                             <div class="medal-score">{gl} - {gv}</div>
                             <div class="medal-prob">{prob*100:.1f}% prob.</div>
                             <div style="font-size:0.68rem; color:#94a3b8; margin-top:2px;">{formatear_momio_justo(prob)}</div>
@@ -1317,13 +1124,14 @@ def render_vista_detalle_partido(r, idx_partido):
             with cc3:
                 st.metric(f"🚩 {visitante}", f"{r['xc_v']}")
 
+            linea_c = r.get("linea_corners", LINEA_CORNERS_DEFAULT)
             if r["prob_over_c"] >= r["prob_under_c"]:
                 prob_c = r["prob_over_c"]
-                pick_corners = f"🔥 OVER {LINEA_CORNERS} CÓRNERS ({prob_c*100:.1f}%) · Fair: {formatear_momio_justo(prob_c)}"
+                pick_corners = f"🔥 OVER {linea_c} CÓRNERS ({prob_c*100:.1f}%) · Fair: {fair_odds['over_corners']}"
                 color_pick = "#00ff9d"
             else:
                 prob_c = r["prob_under_c"]
-                pick_corners = f"🧊 UNDER {LINEA_CORNERS} CÓRNERS ({prob_c*100:.1f}%) · Fair: {formatear_momio_justo(prob_c)}"
+                pick_corners = f"🧊 UNDER {linea_c} CÓRNERS ({prob_c*100:.1f}%) · Fair: {fair_odds['under_corners']}"
                 color_pick = "#00c3ff"
 
             st.markdown(
@@ -1344,18 +1152,18 @@ def render_vista_detalle_partido(r, idx_partido):
             with g1:
                 st.metric("⚽ Goles Esp. (xG)", f"{goles_totales:.2f}", delta=f"Under 2.5: {mercados['under25']*100:.1f}%", delta_color="off")
             with g2:
-                st.metric("🤝 Ambos Anotan (Sí)", f"{mercados['btts']*100:.1f}%", delta=f"Fair: {formatear_momio_justo(mercados['btts'])}", delta_color="off")
+                st.metric("🤝 Ambos Anotan (Sí)", f"{mercados['btts']*100:.1f}%", delta=f"Fair: {fair_odds['btts']}", delta_color="off")
             with g3:
-                st.metric("🔥 Over 2.5 Goles", f"{mercados['over25']*100:.1f}%", delta=f"Fair: {formatear_momio_justo(mercados['over25'])}", delta_color="off")
+                st.metric("🔥 Over 2.5 Goles", f"{mercados['over25']*100:.1f}%", delta=f"Fair: {fair_odds['over25']}", delta_color="off")
 
             st.write("")
             g4, g5, g6 = st.columns(3)
             with g4:
-                st.metric("🧊 Under 3.5 Goles", f"{mercados['under35']*100:.1f}%", delta=f"Fair: {formatear_momio_justo(mercados['under35'])}", delta_color="off")
+                st.metric("🧊 Under 3.5 Goles", f"{mercados['under35']*100:.1f}%", delta=f"Fair: {fair_odds['under35']}", delta_color="off")
             with g5:
-                st.metric(f"🛡️ Cero {local}", f"{mercados['clean_sheet_local']*100:.1f}%", delta=f"Fair: {formatear_momio_justo(mercados['clean_sheet_local'])}", delta_color="off")
+                st.metric(f"🛡️ Cero {local}", f"{mercados['clean_sheet_local']*100:.1f}%", delta=f"Fair: {fair_odds['clean_sheet_local']}", delta_color="off")
             with g6:
-                st.metric(f"🛡️ Cero {visitante}", f"{mercados['clean_sheet_visitante']*100:.1f}%", delta=f"Fair: {formatear_momio_justo(mercados['clean_sheet_visitante'])}", delta_color="off")
+                st.metric(f"🛡️ Cero {visitante}", f"{mercados['clean_sheet_visitante']*100:.1f}%", delta=f"Fair: {fair_odds['clean_sheet_visitante']}", delta_color="off")
 
         st.write("")
         # 7. MATRIZ DE CALOR PLOTLY Y RADIOGRAFÍA DE PLANTILLAS
@@ -1363,7 +1171,7 @@ def render_vista_detalle_partido(r, idx_partido):
         m_col1, m_col2 = st.columns([6, 4])
         with m_col1:
             fig = crear_heatmap_plotly(r["matriz"], local, visitante)
-            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False}, key=f"plotly_detail_{idx_partido}")
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False}, key=f"plotly_detail_{idx_partido}")
         with m_col2:
             st.markdown("<div class='sec-header'>📋 Radiografía de Plantillas</div>", unsafe_allow_html=True)
             st.metric(f"Forma Reciente ({local} vs {visitante})", f"{r['forma_l']*100:.0f}% vs {r['forma_v']*100:.0f}%")
@@ -1373,165 +1181,94 @@ def render_vista_detalle_partido(r, idx_partido):
 
 
 # ==============================================================
-# 6. ESTADO DE SESIÓN, SIMULACIÓN INICIAL Y NAVEGACIÓN PRINCIPAL
+# 6. RENDERIZADO PRINCIPAL Y ENRUTADOR DE VISTAS
 # ==============================================================
-if "partido_activo" not in st.session_state:
-    st.session_state.partido_activo = None
-
-# Inicializamos automáticamente los 9 partidos en la primera carga para mostrar la Cartelera de inmediato
-if "resultados_jornada" not in st.session_state:
-    liga_gf_avg_init = df_equipos["xG_favor"].mean()
-    liga_ga_avg_init = df_equipos["xGA_contra"].mean()
-    equipos_lista = list(df_equipos.index)
-    resultados_init = []
-    for i in range(NUM_PARTIDOS):
-        eq_l = equipos_lista[min(i * 2, len(equipos_lista) - 1)]
-        eq_v = equipos_lista[min(i * 2 + 1, len(equipos_lista) - 1)]
-        if eq_l == eq_v:
-            resultados_init.append({"id": i, "local": eq_l, "visitante": eq_v, "error": True})
-        else:
-            resultados_init.append(
-                analizar_partido(
-                    eq_l, eq_v, liga_gf_avg_init, liga_ga_avg_init,
-                    idx_partido=i, horario=HORARIOS_JORNADA_DEFAULT[i % len(HORARIOS_JORNADA_DEFAULT)]
-                )
-            )
-    st.session_state["resultados_jornada"] = resultados_init
-
-# HERO BANNER SUPERIOR
 st.markdown("""
 <div class="hero-box">
-    <div class="status-pill"><span class="pulse-dot"></span> ENGINE ONLINE · DIXON-COLES + POISSON V5.1 · ESPN CDN EDITION</div>
+    <div class="status-pill"><span class="pulse-dot"></span> ENGINE ONLINE · ARQUITECTURA MODULAR V6.0 · ESPN LIVE SYNC</div>
     <h1 class="main-title">TERMINAL SHARP · LIGA MX</h1>
-    <p class="subtitle">Cartelera Interactiva · Momios Justos (+EV) · Mercados Asiáticos</p>
+    <p class="subtitle">Sincronización ESPN Scoreboard · Motor Bivariado Dixon-Coles · Momios Justos (+EV)</p>
 </div>
 """, unsafe_allow_html=True)
 
-if not csv_cargado_ok:
-    st.caption("ℹ️ Ejecutando con base de datos cuantitativa pre-integrada de los 18 clubes (coloca `ligamx_stats_completo.csv` en el directorio para usar tus métricas personalizadas).")
-
-# ==============================================================
-# ENRUTADOR DE VISTAS MEDIANTE st.session_state.partido_activo
-# ==============================================================
-resultados_guardados = st.session_state.get("resultados_jornada", [])
+resultados_actuales = st.session_state.get("resultados_jornada", [])
+equipos_disponibles = obtener_lista_equipos(st.session_state.df_ligamx)
 
 if st.session_state.partido_activo is None:
-    # ----------------------------------------------------------
-    # VISTA A: CONFIGURADOR + RADAR EJECUTIVO + CARTELERA EN CUADRÍCULA (3 COLUMNAS)
-    # ----------------------------------------------------------
-    with st.expander("⚙️ CONFIGURAR LOS 9 CRUCES DE LA JORNADA (CLIC PARA ABRIR / CERRAR)", expanded=False):
-        with st.form("form_jornada"):
-            partidos_jornada = []
-            for i in range(1, NUM_PARTIDOS + 1):
-                partido_prev = resultados_guardados[i - 1] if (i - 1) < len(resultados_guardados) else None
-                idx_loc_default = (
-                    list(df_equipos.index).index(partido_prev["local"])
-                    if partido_prev and partido_prev["local"] in df_equipos.index
-                    else min((i - 1) * 2, len(df_equipos.index) - 1)
-                )
-                idx_vis_default = (
-                    list(df_equipos.index).index(partido_prev["visitante"])
-                    if partido_prev and partido_prev["visitante"] in df_equipos.index
-                    else min((i - 1) * 2 + 1, len(df_equipos.index) - 1)
-                )
+    # Editor rápido opcional por si el usuario desea personalizar algún cruce manualmente
+    with st.expander("⚙️ AJUSTAR O PERSONALIZAR CRUCES DE LA CARTELERA MANUALMENTE (OPCIONAL)", expanded=False):
+        with st.form("form_personalizar_jornada"):
+            nuevos_eventos_manuales = []
+            num_filas = len(resultados_actuales) if resultados_actuales else 9
+            for i in range(num_filas):
+                r_prev = resultados_actuales[i] if i < len(resultados_actuales) else None
+                loc_prev = normalizar_equipo_para_df(r_prev["local"], equipos_disponibles) if r_prev else equipos_disponibles[min(i * 2, len(equipos_disponibles) - 1)]
+                vis_prev = normalizar_equipo_para_df(r_prev["visitante"], equipos_disponibles) if r_prev else equipos_disponibles[min(i * 2 + 1, len(equipos_disponibles) - 1)]
+                hora_prev = r_prev.get("horario", "JORNADA LIGA MX") if r_prev else "JORNADA LIGA MX"
+                estado_prev = r_prev.get("estado", "Programado") if r_prev else "Programado"
+
+                idx_l = equipos_disponibles.index(loc_prev) if loc_prev in equipos_disponibles else 0
+                idx_v = equipos_disponibles.index(vis_prev) if vis_prev in equipos_disponibles else min(1, len(equipos_disponibles) - 1)
 
                 c1, c2, c3 = st.columns([4.2, 1.6, 4.2])
                 with c1:
-                    local = st.selectbox(
-                        f"Local {i}",
-                        df_equipos.index,
-                        index=idx_loc_default,
-                        key=f"loc_{i}",
+                    sel_local = st.selectbox(
+                        f"Local {i + 1}",
+                        equipos_disponibles,
+                        index=idx_l,
+                        key=f"man_loc_{i}",
                         label_visibility="collapsed",
-                        format_func=lambda x: f"🏠 {EMOJIS_LIGA.get(x, '⚽')} {x}",
+                        format_func=lambda x: f"🏠 {EMOJIS_LIGA_MX.get(x, '⚽')} {x}",
                     )
                 with c2:
                     st.markdown(
-                        f"<div style='text-align:center; font-family:Orbitron,sans-serif; font-size:0.78rem; "
-                        f"font-weight:900; color:#ffd700; padding-top:8px;'>JUEGO {i}<br>"
-                        f"<span style='font-family:JetBrains Mono,monospace;font-size:0.65rem;color:#94a3b8;'>"
-                        f"{HORARIOS_JORNADA_DEFAULT[(i - 1) % len(HORARIOS_JORNADA_DEFAULT)]}</span></div>",
+                        f"<div style='text-align:center;font-family:Orbitron,sans-serif;font-size:0.76rem;"
+                        f"font-weight:900;color:#ffd700;padding-top:8px;'>JUEGO {i + 1}</div>",
                         unsafe_allow_html=True,
                     )
                 with c3:
-                    visitante = st.selectbox(
-                        f"Visitante {i}",
-                        df_equipos.index,
-                        index=idx_vis_default,
-                        key=f"vis_{i}",
+                    sel_visita = st.selectbox(
+                        f"Visita {i + 1}",
+                        equipos_disponibles,
+                        index=idx_v,
+                        key=f"man_vis_{i}",
                         label_visibility="collapsed",
-                        format_func=lambda x: f"✈️ {EMOJIS_LIGA.get(x, '⚽')} {x}",
+                        format_func=lambda x: f"✈️ {EMOJIS_LIGA_MX.get(x, '⚽')} {x}",
                     )
 
-                partidos_jornada.append({
-                    "local": local,
-                    "visitante": visitante,
-                    "horario": HORARIOS_JORNADA_DEFAULT[(i - 1) % len(HORARIOS_JORNADA_DEFAULT)],
+                nuevos_eventos_manuales.append({
+                    "id_partido": f"MAN-{i + 1}",
+                    "nombre": f"{sel_visita} vs {sel_local}",
+                    "away": sel_visita,
+                    "home": sel_local,
+                    "hora": hora_prev,
+                    "estado": estado_prev,
                 })
-                if i < NUM_PARTIDOS:
-                    st.markdown("<hr style='margin: 0.35em 0px; border-color: rgba(255,255,255,0.06);'>", unsafe_allow_html=True)
 
-            st.write("")
-            escanear = st.form_submit_button("⚡ ACTUALIZAR CARTELERA Y EJECUTAR SIMULACIÓN CUANTITATIVA ⚡", use_container_width=True)
+            aplicar_manual = st.form_submit_button("⚡ RECALCULAR CARTELERA PERSONALIZADA ⚡", use_container_width=True)
+            if aplicar_manual:
+                st.session_state.calendario_ligamx = nuevos_eventos_manuales
+                st.session_state.resultados_jornada = sincronizar_simulaciones_jornada(
+                    st.session_state.df_ligamx,
+                    nuevos_eventos_manuales,
+                )
+                st.session_state.partido_activo = None
+                st.rerun()
 
-        if escanear:
-            liga_gf_avg = df_equipos["xG_favor"].mean()
-            liga_ga_avg = df_equipos["xGA_contra"].mean()
-
-            nuevos_resultados = []
-            for idx_p, p in enumerate(partidos_jornada):
-                if p["local"] == p["visitante"]:
-                    nuevos_resultados.append({
-                        "id": idx_p,
-                        "local": p["local"],
-                        "visitante": p["visitante"],
-                        "horario": p["horario"],
-                        "error": True,
-                    })
-                else:
-                    nuevos_resultados.append(
-                        analizar_partido(
-                            p["local"], p["visitante"], liga_gf_avg, liga_ga_avg,
-                            idx_partido=idx_p, horario=p["horario"]
-                        )
-                    )
-
-            st.session_state["resultados_jornada"] = nuevos_resultados
-            st.session_state.partido_activo = None
-            st.rerun()
-
-    validos = [r for r in resultados_guardados if not r.get("error")]
+    validos = [r for r in resultados_actuales if not r.get("error")]
     render_radar_jornada(validos)
-    render_vista_cartelera_grid(resultados_guardados)
+    render_vista_cartelera_grid(resultados_actuales)
 
 else:
-    # ----------------------------------------------------------
-    # VISTA B: PANTALLA DETALLADA DEL PARTIDO SELECCIONADO
-    # ----------------------------------------------------------
-    seleccion = st.session_state.partido_activo
-    partido_obj = None
-    idx_sel = 0
-
-    if isinstance(seleccion, tuple) and len(seleccion) == 3:
-        loc_sel, vis_sel, idx_cand = seleccion
-        if 0 <= idx_cand < len(resultados_guardados):
-            cand = resultados_guardados[idx_cand]
-            if not cand.get("error"):
-                partido_obj = cand
-                idx_sel = idx_cand
-        if partido_obj is None:
-            for i_r, r_item in enumerate(resultados_guardados):
-                if not r_item.get("error") and r_item["local"] == loc_sel and r_item["visitante"] == vis_sel:
-                    partido_obj = r_item
-                    idx_sel = i_r
-                    break
-    elif isinstance(seleccion, int) and 0 <= seleccion < len(resultados_guardados):
-        partido_obj = resultados_guardados[seleccion]
-        idx_sel = seleccion
-
-    if partido_obj is None or partido_obj.get("error"):
-        st.warning("⚠️ El partido seleccionado ya no está disponible. Regresando a la cartelera...")
+    idx_sel = st.session_state.partido_activo
+    if isinstance(idx_sel, int) and 0 <= idx_sel < len(resultados_actuales):
+        partido_sel = resultados_actuales[idx_sel]
+        if partido_sel.get("error"):
+            st.warning("⚠️ El partido seleccionado contiene un error de configuración. Regresando a la cartelera...")
+            st.session_state.partido_activo = None
+            st.rerun()
+        else:
+            render_vista_detalle_partido(partido_sel, idx_sel)
+    else:
         st.session_state.partido_activo = None
         st.rerun()
-    else:
-        render_vista_detalle_partido(partido_obj, idx_sel)
